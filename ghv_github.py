@@ -256,12 +256,22 @@ class GhvGithub:
         print(f"Failed to list files in repository {repo_name}")
         return file_list  # Return empty list if no files are found
 
-    def get_file_chunks(self, repo_name: str, file_path: str, chunk_size: int = 512) -> List[str]:
+    def get_file_chunks(self, file_info: Dict[str, str], chunk_size: int = 512) -> List[str]:
         """
         Retrieves and chunks the content of a file from the GitHub repository.
+
+        Args:
+            file_info (Dict[str, str]): A dictionary containing 'repo', 'path', and other relevant keys.
+            chunk_size (int): The size of each chunk. Defaults to 512 characters.
+
+        Returns:
+            List[str]: A list of chunks of the file content.
         """
+        repo_name = file_info.get('repo')
+        file_path = file_info.get('path')
         url = f"{
             GITHUB_API_BASE_URL}/repos/{self.repo_owner}/{repo_name}/contents/{file_path}"
+
         response = requests.get(url, headers=self.headers)
 
         if response.status_code == 200:
@@ -294,9 +304,9 @@ class GhvGithub:
         print(files[:10])  # List the first 10 files for demonstration
 
         # Output the first 10 chunks of the first 3 files
-        for i, file_path in enumerate(files[:3]):
-            print(f"\nFetching chunks from file {i+1}: {file_path}")
-            chunks = self.get_file_chunks(first_repo, file_path)
+        for i, file_info in enumerate(files[:3]):
+            print(f"\nFetching chunks from file {i+1}: {file_info['path']}")
+            chunks = self.get_file_chunks(file_info)
             for chunk in chunks[:10]:  # Limit to the first 10 chunks
                 print(chunk)
                 print("--- End of chunk ---")
