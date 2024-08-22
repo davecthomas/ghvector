@@ -256,13 +256,15 @@ class GhvGithub:
         print(f"Failed to list files in repository {repo_name}")
         return file_list  # Return empty list if no files are found
 
-    def get_file_chunks(self, file_info: Dict[str, str], chunk_size: int = 512) -> List[str]:
+    def get_file_chunks(self, file_info: Dict[str, str], chunk_size: int = 512, test_mode: bool = False, test_chunk_limit: int = 10) -> List[str]:
         """
         Retrieves and chunks the content of a file from the GitHub repository.
 
         Args:
             file_info (Dict[str, str]): A dictionary containing 'repo', 'path', and other relevant keys.
             chunk_size (int): The size of each chunk. Defaults to 512 characters.
+            test_mode (bool): Whether to limit the number of chunks for testing. Defaults to False.
+            test_chunk_limit (int): The number of chunks to pull in test mode. Defaults to 10.
 
         Returns:
             List[str]: A list of chunks of the file content.
@@ -281,6 +283,11 @@ class GhvGithub:
             # Chunk the content
             chunks = [content_decoded[i:i + chunk_size]
                       for i in range(0, len(content_decoded), chunk_size)]
+
+            # Apply test mode limit if enabled
+            if test_mode:
+                chunks = chunks[:test_chunk_limit]
+
             return chunks
         else:
             print(f"Failed to fetch content for {file_path} in {

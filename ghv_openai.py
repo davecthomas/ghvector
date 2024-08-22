@@ -8,14 +8,28 @@ from openai.types import EmbeddingCreateParams, CreateEmbeddingResponse
 
 
 class GhvOpenAI:
-    def __init__(self):
+    # Static list of embedding models with their settings
+    embedding_models = [
+        {"model_name": "text-embedding-ada-002",
+            "dimensions": 1536, "pricing_per_token": 0.0004},
+        {"model_name": "text-embedding-3-small",
+            "dimensions": 512, "pricing_per_token": 0.00025},
+        {"model_name": "text-embedding-3-large",
+            "dimensions": 1536, "pricing_per_token": 0.0005}
+    ]
+
+    def __init__(self, model: str = "text-embedding-3-small", dimensions: int = 512):
+        """
+        Initializes the GhvOpenAI class, setting the model and dimensions.
+
+        Args:
+            model (str): The embedding model to use.
+            dimensions (int): The number of dimensions for the embeddings.
+        """
         load_dotenv()  # Load environment variables from .env file
         self.api_key = os.getenv("OPENAI_API_KEY")
-        self.embedding_model = os.getenv(
-            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-        # Default dimension
-        self.dimensions = int(os.getenv("OPENAI_EMBEDDING_DIMENSIONS", 512))
-        # Default user identifier
+        self.embedding_model = model  # Use the model passed to the constructor
+        self.dimensions = dimensions  # Use the dimensions passed to the constructor
         self.user = os.getenv("OPENAI_USER", "default_user")
         self.client = OpenAI(api_key=self.api_key)
 
@@ -33,8 +47,7 @@ class GhvOpenAI:
         params: EmbeddingCreateParams = {
             "input": [text],  # Input text as a list of strings
             "model": self.embedding_model,  # Model to use
-            "dimensions": self.dimensions  # Number of dimensions
-
+            "dimensions": self.dimensions,  # Number of dimensions
         }
 
         # Call the API to create the embedding
