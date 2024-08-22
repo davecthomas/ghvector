@@ -5,6 +5,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 from openai.types import EmbeddingCreateParams, CreateEmbeddingResponse
+import tiktoken
 
 
 class GhvOpenAI:
@@ -32,6 +33,23 @@ class GhvOpenAI:
         self.dimensions = dimensions  # Use the dimensions passed to the constructor
         self.user = os.getenv("OPENAI_USER", "default_user")
         self.client = OpenAI(api_key=self.api_key)
+
+    def count_tokens(self, text: str) -> int:
+        """
+        Counts the number of tokens in a given text based on the specified OpenAI model's tokenizer.
+
+        Args:
+            text (str): The text to be tokenized.
+
+        Returns:
+            int: The number of tokens in the text.
+        """
+        # Get the appropriate tokenizer for the model
+        tokenizer = tiktoken.get_encoding(self.model_name)
+
+        # Tokenize the text and count the tokens
+        tokens = tokenizer.encode(text)
+        return len(tokens)
 
     def generate_embeddings(self, text: str) -> Dict[str, Any]:
         """

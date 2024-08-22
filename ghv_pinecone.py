@@ -8,13 +8,6 @@ from datetime import datetime
 
 
 class GhvPinecone:
-    # Static list of embedding models with their settings
-    embedding_models = [
-        {"model_name": "text-embedding-ada-002", "pricing_per_token": 0.0004},
-        {"model_name": "text-embedding-3-small", "pricing_per_token": 0.00025},
-        {"model_name": "text-embedding-3-large", "pricing_per_token": 0.0005}
-    ]
-
     def __init__(self):
         load_dotenv()  # Load environment variables from .env file
         self.api_key = os.getenv("PINECONE_API_KEY")
@@ -70,52 +63,6 @@ class GhvPinecone:
             )
         self.index = self.pc.Index(self.index_name)
         print(f"Connected to Pinecone index: {self.index_name}")
-
-    def test_query_vector_with_openai(self, model_name: str, dimensions: int, text: str, prompt: str, ghv_openai: GhvOpenAI) -> pd.DataFrame:
-        """
-        Tests the vector query by generating an embedding for a dummy function and querying with a related prompt.
-        Outputs the results to a DataFrame.
-
-        Args:
-            model_name (str): The name of the embedding model being tested.
-            dimensions (int): The number of dimensions for the embedding vectors.
-            text (str): The text to generate the embedding from.
-            prompt (str): The prompt to query against the generated embedding.
-            ghv_openai (GhvOpenAI): The GhvOpenAI instance used to generate embeddings.
-
-        Returns:
-            pd.DataFrame: A DataFrame containing the results of the query.
-        """
-        # Set the specific model and dimensions for this test
-        ghv_openai.embedding_model = model_name
-        ghv_openai.dimensions = dimensions
-
-        # Generate embedding for the dummy function using GhvOpenAI
-        function_response = ghv_openai.generate_embeddings(text)
-        function_embedding = function_response['embedding']
-
-        # Upsert the function embedding to Pinecone
-        self.upsert_vectors([{
-            "id": f"{model_name}-dummy-function-id",
-            "values": function_embedding,
-            "metadata": {"description": "Dummy function for testing"}
-        }])
-
-        # Generate embedding for the prompt
-        query_response = ghv_openai.generate_embeddings(prompt)
-        query_embedding = query_response['embedding']
-
-        # Query Pinecone using the query embedding
-        print(f"Querying Pinecone index with the prompt: '{prompt}'")
-        results = self.query_vector(vector=query_embedding, top_k=5)
-
-        # Collect results into a DataFrame for comparative analysis
-        results_df = pd.DataFrame(results)
-        results_df['embedding_model'] = model_name
-        results_df['dimensions'] = dimensions
-        results_df['prompt'] = prompt
-        results_df['text'] = text
-        return results_df
 
     def upsert_vectors(self, vectors: List[Dict[str, Any]]):
         """
@@ -179,43 +126,50 @@ class GhvPinecone:
         """
         return self.index.describe_index_stats()  # Get and return the index stats
 
-    def test_query_vector_with_openai(self, text: str, prompt: str, ghv_openai: GhvOpenAI) -> pd.DataFrame:
+    def test_query_vector_with_openai(self, dict_test: Dict, ghv_openai: GhvOpenAI) -> pd.DataFrame:
         """
         Tests the vector query by generating an embedding for a dummy function and querying with a related prompt.
-        Outputs the results to a DataFrame and saves it as a CSV file.
 
         Args:
             ghv_openai (GhvOpenAI): The GhvOpenAI instance used to generate embeddings.
         """
 
         # Generate embedding for the dummy function using GhvOpenAI
-        function_response = ghv_openai.generate_embeddings(text)
+        function_response = ghv_openai.generate_embeddings(dict_test["text"])
 
         # Access the embedding vector directly from the response
         function_embedding = function_response['embedding']
 
         # Upsert the function embedding to Pinecone
         self.upsert_vectors([{
-            "id": "dummy-function-id",
+            "id": dict_test["id"],
             "values": function_embedding,
-            "metadata": {"description": "Dummy function with try-catch block"}
+            "metadata": dict_test["metadata"]
         }])
 
-        query_response = ghv_openai.generate_embeddings(prompt)
+        query_response = ghv_openai.generate_embeddings(dict_test["prompt"])
 
         # Access the embedding vector directly from the response
         query_embedding = query_response['embedding']
 
         # Query Pinecone using the query embedding
-        print(f"Querying Pinecone index with the prompt: '{prompt}'")
+        print(f"Querying Pinecone index with the prompt: '{
+              dict_test['prompt']}'")
         results = self.query_vector(vector=query_embedding, top_k=5)
 
         # Collect results into a DataFrame for comparative analysis
         results_df = pd.DataFrame(results)
         results_df['embedding_model'] = ghv_openai.embedding_model
         results_df['dimensions'] = ghv_openai.dimensions
-        results_df['prompt'] = prompt
-        results_df['text'] = text
+        results_df['prompt'] = dict_test["prompt"]
+        results_df['text'] = dict_test["text"]
+        results_df['score'] = results_df['score'].astype(float)
+
+        num_tokens: int = ghv_openai.count_tokens(
+            dict_test["text"]) + ghv_openai.count_tokens(dict_test["prompt"])
+        results_df['num_tokens'] = num_tokens
+        results_df["cost"] = num_tokens * ghv_openai.pricing_per_token
+
         return results_df
 
 
@@ -395,13 +349,11 @@ if __name__ == "__main__":
         ghv_openai_client = GhvOpenAI(
             model=model["model_name"], dimensions=model["dimensions"])
 
-        total_tokens = 0
+        total_tokens: int = 0
 
         for embedding_test in embedding_tests:
             results_df = pinecone_client.test_query_vector_with_openai(
                 embedding_test, ghv_openai_client)
-            total_tokens += len(embedding_test["text"].split()) + \
-                len(embedding_test["prompt"].split())
 
             # Merge the results into the overall DataFrame
             all_results_df = pd.concat(
