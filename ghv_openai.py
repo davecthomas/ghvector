@@ -10,14 +10,12 @@ import tiktoken
 
 class GhvOpenAI:
     # Static list of embedding models with their settings
-    embedding_models = [
-        {"model_name": "text-embedding-ada-002",
-            "dimensions": 1536, "pricing_per_token": 0.0004},
-        {"model_name": "text-embedding-3-small",
-            "dimensions": 512, "pricing_per_token": 0.00025},
-        {"model_name": "text-embedding-3-large",
-            "dimensions": 1536, "pricing_per_token": 0.0005}
-    ]
+    embedding_models: Dict = {
+        "text-embedding-ada-002": {"dimensions": 1536, "pricing_per_token": 0.0004},
+        "text-embedding-3-small": {"dimensions": 1536, "pricing_per_token": 0.00025},
+        "text-embedding-3-large": {"dimensions": 3072, "pricing_per_token": 0.0005}}
+
+    embedding_model_default = "text-embedding-3-small"
 
     def __init__(self, model: str = "text-embedding-3-small", dimensions: int = 512):
         """
@@ -36,7 +34,7 @@ class GhvOpenAI:
 
     def count_tokens(self, text: str) -> int:
         """
-        Counts the number of tokens in a given text based on the specified OpenAI model's tokenizer.
+        Counts the number of tokens in a given text based on a generic tokenizer cl100k_base.
 
         Args:
             text (str): The text to be tokenized.
@@ -45,7 +43,7 @@ class GhvOpenAI:
             int: The number of tokens in the text.
         """
         # Get the appropriate tokenizer for the model
-        tokenizer = tiktoken.get_encoding(self.model_name)
+        tokenizer = tiktoken.get_encoding("cl100k_base")
 
         # Tokenize the text and count the tokens
         tokens = tokenizer.encode(text)
@@ -64,8 +62,7 @@ class GhvOpenAI:
         # Construct the parameters using EmbeddingCreateParams
         params: EmbeddingCreateParams = {
             "input": [text],  # Input text as a list of strings
-            "model": self.embedding_model,  # Model to use
-            "dimensions": self.dimensions,  # Number of dimensions
+            "model": self.embedding_model,  # Model to use for embedding
         }
 
         # Call the API to create the embedding

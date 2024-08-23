@@ -1,50 +1,97 @@
 import os
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone, ServerlessSpec, UpsertResponse
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 from ghv_openai import GhvOpenAI
 import pandas as pd
 from datetime import datetime
+import re
 
 
 class GhvPinecone:
-    def __init__(self):
+    # Class constants for Pinecone pricing
+    STORAGE_COST_PER_GB_PER_HOUR = 0.00045
+    WRITE_COST_PER_MILLION_UNITS = 2.00
+    READ_COST_PER_MILLION_UNITS = 8.25
+    BYTES_PER_DIMENSION = 4
+
+    def __init__(self, embedding_model_name="", base_index_name: str = "", metric: str = "", dimension: int = 0):
         load_dotenv()  # Load environment variables from .env file
-        self.api_key = os.getenv("PINECONE_API_KEY")
-        self.index_name = os.getenv(
-            "PINECONE_INDEX_NAME", "ghvector-file-chunks")
-        self.metric = os.getenv("PINECONE_METRIC", "cosine")
+        self.api_key: str = os.getenv("PINECONE_API_KEY")
+        self.project_name: str = os.getenv(
+            "PINECONE_PROJECT_NAME", "ghvector")
+        # These call all be overriden with create_index
+        if metric == "":
+            self.metric: str = os.getenv("PINECONE_METRIC", "cosine")
+        else:
+            self.metric = metric
+        if dimension == 0:
+            self.dimension = int(os.getenv("EMBEDDING_DIMENSIONS", 1536))
+        else:
+            self.dimension = dimension
+        if base_index_name == "":
+            self.base_index_name: str = os.getenv(
+                "PINECONE_BASE_INDEX_NAME", "ghv")
+        else:
+            self.base_index_name = base_index_name
+        if embedding_model_name == "":
+            self.embedding_model_name: str = GhvOpenAI.embedding_model_default
+        else:
+            self.embedding_model_name = embedding_model_name
 
         self.pc = Pinecone(api_key=self.api_key)
-        self._connect_to_index()
+        self.create_or_reuse_index(embedding_model_name, dimension)
 
-    def create_index(self, model_name: str, dimensions: int):
+    def check_index_exists(self, index_name: str) -> bool:
         """
-        Creates a new Pinecone index
-        If an index with the specified name already exists, appends a numeric suffix to create a unique name.
+        Checks if a Pinecone index with the given name already exists.
+
+        Args:
+            index_name (str): The name of the index to check.
+
+        Returns:
+            bool: True if the index exists, False otherwise.
+        """
+        return index_name in self.pc.list_indexes().names()
+
+    def create_or_reuse_index(self, embedding_model_name: str, dimension: int):
+        """
+        Creates a new Pinecone index or reuses an existing one if it already exists.
 
         Args:
             model_name (str): The name of the embedding model being used, included in the index name.
             dimensions (int): The number of dimensions for the embedding vectors.
         """
+        from datetime import datetime
 
         # Generate a timestamp to ensure the index name is unique
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.index_name = f"{self.index_name}_{
-            model_name}_{dimensions}_{timestamp}"
 
-        # Create the new index with the (potentially modified) name
-        self.pc.create_index(
-            name=self.index_name,
-            dimension=dimensions,  # Use the specific dimensions for this model
-            metric=self.metric,
-            spec=ServerlessSpec(
-                cloud=os.getenv("PINECONE_CLOUD", "aws"),
-                region=os.getenv("PINECONE_REGION", "us-east-1")
+        # Construct and clean the initial index name
+        index_name = f"{self.project_name}_{
+            embedding_model_name[:20]}_{dimension}_{timestamp}"
+        cleaned_index_name = re.sub(r'[^a-z0-9\-]', '-', index_name.lower())
+        self.index_name = cleaned_index_name[:45]
+
+        # Check if the index already exists using the check_index_exists function
+        if self.check_index_exists(self.index_name):
+            print(
+                f"Index '{self.index_name}' already exists. Reusing the existing index.")
+            self.index = self.pc.Index(self.index_name)
+        else:
+            # Create the new index if it doesn't exist
+            self.pc.create_index(
+                name=self.index_name,
+                dimension=dimension,
+                metric=self.metric,
+                spec=ServerlessSpec(
+                    cloud=os.getenv("PINECONE_CLOUD", "aws"),
+                    region=os.getenv("PINECONE_REGION", "us-east-1")
+                )
             )
-        )
-        print(f"Created Pinecone index '{self.index_name}' with {
-              dimensions} dimensions and '{self.metric}' metric.")
+            self.index = self.pc.Index(self.index_name)
+            print(f"Created Pinecone index '{self.index_name}' with {
+                  dimension} dimensions and '{self.metric}' metric.")
 
     def _connect_to_index(self):
         """
@@ -64,7 +111,7 @@ class GhvPinecone:
         self.index = self.pc.Index(self.index_name)
         print(f"Connected to Pinecone index: {self.index_name}")
 
-    def upsert_vectors(self, vectors: List[Dict[str, Any]]):
+    def upsert_vectors(self, vectors: List[Dict[str, Any]]) -> int:
         """
         Upserts a batch of vectors into the Pinecone index.
 
@@ -74,9 +121,17 @@ class GhvPinecone:
                 - 'values': The vector embedding.
                 - 'metadata': Optional metadata associated with the vector.
         """
-        self.index.upsert(vectors)
-        print(f"Upserted {len(vectors)} vectors to Pinecone index: {
-              self.index_name}")
+        # vector_length: int = len(vectors[0].get("values", []))
+        num_vectors: int = len(vectors)
+        upsert_response: UpsertResponse = self.index.upsert(vectors)
+        upserted_count: int = upsert_response.get("upserted_count", 0)
+        if upserted_count != num_vectors:
+            print(f"\tMismatch between upserted vectors and total vectors. Upserted {
+                  upserted_count} != {num_vectors}")
+        # else:
+        #     print(f"\tUpserted {upserted_count} vector of length {vector_length} to Pinecone index: {
+        #       self.index_name}")
+        return upserted_count
 
     def query_vector(self, vector: List[float], top_k: int = 10) -> List[Dict[str, Any]]:
         """
@@ -91,6 +146,7 @@ class GhvPinecone:
         """
         result = self.index.query(
             vector=vector, top_k=top_k)  # Perform the query
+        print(f"Query result: {result['matches']}")
         return result['matches']  # Return the list of matches
 
     def delete_vector(self, vector_id: str):
@@ -126,57 +182,125 @@ class GhvPinecone:
         """
         return self.index.describe_index_stats()  # Get and return the index stats
 
-    def test_query_vector_with_openai(self, dict_test: Dict, ghv_openai: GhvOpenAI) -> pd.DataFrame:
+    def calculate_storage_cost(self, dimensions: int, num_vectors: int = 1, hours: int = 1) -> float:
         """
-        Tests the vector query by generating an embedding for a dummy function and querying with a related prompt.
+        Calculates the cost of storing vectors in Pinecone.
 
         Args:
-            ghv_openai (GhvOpenAI): The GhvOpenAI instance used to generate embeddings.
+            num_vectors (int): The number of vectors being stored.
+            hours (int): The number of hours the vectors are stored (default is 1 hour).
+
+        Returns:
+            float: The estimated cost of storing the vectors for the specified time.
         """
+        # Convert dimensions to bytes
+        vector_size_bytes = dimensions * self.BYTES_PER_DIMENSION
+        bytes_per_gb = 1024 * 1024 * 1024
 
-        # Generate embedding for the dummy function using GhvOpenAI
-        function_response = ghv_openai.generate_embeddings(dict_test["text"])
+        # Calculate total storage in GB
+        total_storage_gb = (num_vectors * vector_size_bytes) / bytes_per_gb
 
-        # Access the embedding vector directly from the response
-        function_embedding = function_response['embedding']
+        # Total storage cost
+        return total_storage_gb * self.STORAGE_COST_PER_GB_PER_HOUR * hours
 
-        # Upsert the function embedding to Pinecone
-        self.upsert_vectors([{
-            "id": dict_test["id"],
-            "values": function_embedding,
-            "metadata": dict_test["metadata"]
-        }])
+    def calculate_write_cost(self, num_vectors: int = 1) -> float:
+        """
+        Calculates the cost of writing vectors to Pinecone.
 
-        query_response = ghv_openai.generate_embeddings(dict_test["prompt"])
+        Args:
+            num_vectors (int): The number of vectors being written.
 
-        # Access the embedding vector directly from the response
-        query_embedding = query_response['embedding']
+        Returns:
+            float: The estimated cost of writing the vectors.
+        """
+        # Pinecone charges $2.00 per 1M Write Units
+        write_units = num_vectors / 1_000_000
+        return write_units * self.WRITE_COST_PER_MILLION_UNITS
 
-        # Query Pinecone using the query embedding
-        print(f"Querying Pinecone index with the prompt: '{
-              dict_test['prompt']}'")
-        results = self.query_vector(vector=query_embedding, top_k=5)
+    def calculate_read_cost(self, num_queries: int = 1) -> float:
+        """
+        Calculates the cost of querying vectors in Pinecone.
 
-        # Collect results into a DataFrame for comparative analysis
-        results_df = pd.DataFrame(results)
-        results_df['embedding_model'] = ghv_openai.embedding_model
-        results_df['dimensions'] = ghv_openai.dimensions
-        results_df['prompt'] = dict_test["prompt"]
-        results_df['text'] = dict_test["text"]
-        results_df['score'] = results_df['score'].astype(float)
+        Args:
+            num_queries (int): The number of queries made.
 
-        num_tokens: int = ghv_openai.count_tokens(
-            dict_test["text"]) + ghv_openai.count_tokens(dict_test["prompt"])
-        results_df['num_tokens'] = num_tokens
-        results_df["cost"] = num_tokens * ghv_openai.pricing_per_token
+        Returns:
+            float: The estimated cost of querying the vectors.
+        """
+        # Pinecone charges $8.25 per 1M Read Units
+        read_units = num_queries / 1_000_000
+        return read_units * self.READ_COST_PER_MILLION_UNITS
 
-        return results_df
+
+def test_embedding_insert(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvOpenAI) -> int:
+    """
+    Stores a test vector from the test dictionary.
+
+    Args:
+        ghv_openai (GhvOpenAI): The GhvOpenAI instance used to generate embeddings.
+    """
+
+    # Generate embedding for the dummy function using GhvOpenAI
+    function_response = ghv_openai.generate_embeddings(dict_test["text"])
+
+    # Access the embedding vector directly from the response
+    function_embedding = function_response['embedding']
+
+    # Upsert the function embedding to Pinecone
+    upserted_count: int = ghv_pc.upsert_vectors([{
+        "id": dict_test["id"],
+        "values": function_embedding,
+        "metadata": dict_test["metadata"]
+    }])
+    return upserted_count
+
+
+def test_embedding_search(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvOpenAI) -> pd.DataFrame:
+    """
+    Tests the vector query by generating an embedding for a dummy function and querying with a related prompt.
+
+    Args:
+        ghv_openai (GhvOpenAI): The GhvOpenAI instance used to generate embeddings.
+    """
+
+    query_response = ghv_openai.generate_embeddings(dict_test["prompt"])
+
+    # Access the embedding vector directly from the response
+    query_embedding = query_response['embedding']
+
+    # Query Pinecone using the query embedding
+    print(f"\tQuerying Pinecone {ghv_pc.index_name} with the prompt: '{
+        dict_test['prompt']}'")
+
+    results = ghv_pc.query_vector(vector=query_embedding, top_k=5)
+
+    pricing_per_token: float = ghv_openai.embedding_models[ghv_openai.embedding_model].get(
+        "pricing_per_token", 0.0)
+    num_tokens: int = ghv_openai.count_tokens(
+        dict_test["text"]) + ghv_openai.count_tokens(dict_test["prompt"])
+    # Structure results for DataFrame compatibility
+    structured_results = []
+    for result in results:
+        row = {
+            "embedding_model": ghv_openai.embedding_model,
+            "dimensions": ghv_openai.dimensions,
+            "prompt": dict_test["prompt"],
+            "text": dict_test["text"],
+            "score": float(result.get("score", 0.0)),
+            "num_tokens": num_tokens,
+            "cost": float(pricing_per_token) * num_tokens,
+            "vectordb_storage_cost": ghv_pc.calculate_write_cost() + ghv_pc.calculate_storage_cost(ghv_openai.dimensions),
+            "vectordb_read_cost": ghv_pc.calculate_read_cost(),
+        }
+        structured_results.append(row)
+
+    # Convert structured results into a DataFrame
+    results_df = pd.DataFrame(structured_results)
+
+    return results_df
 
 
 if __name__ == "__main__":
-    pinecone_client = GhvPinecone()
-    ghv_openai_client = GhvOpenAI()
-
     # Initialize an empty DataFrame to hold all results
     all_results_df = pd.DataFrame()
 
@@ -340,28 +464,44 @@ if __name__ == "__main__":
         }
     ]
 
-    for model in GhvOpenAI.embedding_models:
-        print(f"Testing with model: {model['model_name']}")
-        pinecone_client.create_index(
-            model_name=model["model_name"], dimensions=model["dimensions"])
+    # Cache the GhvOpenAI and GhvPinecone instances for each model since we reuse them
+    dicts: Dict = {}
+    ghv_openai_client: GhvOpenAI = None
+    pinecone_client: GhvPinecone = None
 
+    for model, model_settings in GhvOpenAI.embedding_models.items():
+        dicts[model] = {"openai": None, "pinecone": None}
         # Initialize OpenAI client with the specific model and dimensions
         ghv_openai_client = GhvOpenAI(
-            model=model["model_name"], dimensions=model["dimensions"])
+            model=model, dimensions=model_settings["dimensions"])
+        dicts[model]["openai"] = ghv_openai_client
+        pinecone_client = GhvPinecone(
+            embedding_model_name=model, dimension=model_settings["dimensions"])
+        dicts[model]["pinecone"] = pinecone_client
+        print(f"\tInserting embeddings with model: {model}")
 
-        total_tokens: int = 0
-
+        count: int = 0
         for embedding_test in embedding_tests:
-            results_df = pinecone_client.test_query_vector_with_openai(
-                embedding_test, ghv_openai_client)
+            count += test_embedding_insert(pinecone_client,
+                                           embedding_test, ghv_openai_client)
+
+            print(f"\r\tInsert count: {count}", end="")
+        print("\n")
+
+    for model, model_settings in GhvOpenAI.embedding_models.items():
+        print(f"\nTesting prompt queries with model: {model}")
+
+        ghv_openai_client = dicts.get(model, None).get("openai", None)
+        pinecone_client = dicts.get(model, None).get("pinecone", None)
+
+        count: int = 0
+        for embedding_test in embedding_tests:
+            results_df = test_embedding_search(pinecone_client,
+                                               embedding_test, ghv_openai_client)
 
             # Merge the results into the overall DataFrame
             all_results_df = pd.concat(
                 [all_results_df, results_df], ignore_index=True)
-
-        # Estimate and print the cost for this model
-        cost = total_tokens * model["pricing_per_token"]
-        print(f"Estimated cost for model {model['model_name']}: ${cost:.6f}")
 
     # Sort the final DataFrame by score in descending order, since that's what we're interested in
     all_results_df = all_results_df.sort_values(by="score", ascending=False)
