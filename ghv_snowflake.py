@@ -4,6 +4,7 @@ from typing import Dict, Optional, List, Any
 import pandas as pd
 import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
+from datetime import datetime
 
 
 class GhvSnowflake:
@@ -66,7 +67,7 @@ class GhvSnowflake:
 
     def store_embedding_data(self, data: List[Dict[str, Any]]):
         """
-        Stores the embedding data in the Snowflake table 'github_to_vector_code_chunks'.
+        Stores the embedding data in the Snowflake table 'github_to_vector_text'.
 
         Args:
             data (List[Dict[str, Any]]): A list of dictionaries containing the embedding data.
@@ -76,7 +77,7 @@ class GhvSnowflake:
 
         try:
             success, nchunks, nrows, _ = write_pandas(
-                conn, df, '"github_to_vector_code_chunks"')
+                conn, df, '"github_to_vector_text"')
             if success:
                 print(f"Successfully inserted {nrows} rows into Snowflake.")
             else:
@@ -86,7 +87,7 @@ class GhvSnowflake:
 
     def read_embedding_data(self, repo_name: str, file_name: str) -> pd.DataFrame:
         """
-        Reads the embedding data from the Snowflake table 'github_to_vector_code_chunks' for a specific file.
+        Reads the embedding data from the Snowflake table 'github_to_vector_text' for a specific file.
 
         Args:
             repo_name (str): The name of the repository.
@@ -98,7 +99,7 @@ class GhvSnowflake:
         conn = self.get_snowflake_connection()
         query = f"""
         SELECT *
-        FROM "github_to_vector_code_chunks"
+        FROM "github_to_vector_text"
         WHERE "repo_name" = '{repo_name}' AND "file_name" = '{file_name}'
         """
 
@@ -109,11 +110,61 @@ class GhvSnowflake:
             print(f"Error reading data from Snowflake: {e}")
             return pd.DataFrame()  # Return an empty DataFrame on error
 
+    def store_single_embedding(self, data: Dict[str, Any]):
+        """
+        Stores a single record in the Snowflake table 'github_to_vector_text'.
+
+        Args:
+            data (Dict[str, Any]): A dictionary containing the data for a single embedding.
+        """
+        conn = self.get_snowflake_connection()
+
+        # Override storage_datetime with current timestamp
+        data["storage_datetime"] = datetime.utcnow().strftime(
+            '%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+        # Convert the single dictionary to a DataFrame
+        df = pd.DataFrame([data])
+
+        try:
+            success, nchunks, nrows, _ = write_pandas(
+                conn, df, '"github_to_vector_text"')
+            if success:
+                print(f"Successfully inserted {nrows} row into Snowflake.")
+            else:
+                print("Failed to insert the row into Snowflake.")
+        except Exception as e:
+            print(f"Error inserting the record into Snowflake: {e}")
+
+    def read_embedding_by_id(self, embedding_id: str) -> pd.DataFrame:
+        """
+        Reads a specific record from the Snowflake table 'github_to_vector_text' using the embedding_id.
+
+        Args:
+            embedding_id (str): The ID of the embedding to retrieve.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the retrieved record.
+        """
+        conn = self.get_snowflake_connection()
+        query = f"""
+        SELECT *
+        FROM "github_to_vector_text"
+        WHERE "embedding_id" = '{embedding_id}'
+        """
+
+        try:
+            df = pd.read_sql(query, conn)
+            return df
+        except Exception as e:
+            print(f"Error reading data from Snowflake by embedding_id: {e}")
+            return pd.DataFrame()  # Return an empty DataFrame on error
+
     def test_connection(self) -> bool:
         """Tests opening a connection to Snowflake and performing a basic SELECT query."""
         try:
             conn = self.get_snowflake_connection()
-            query = 'SELECT * FROM "github_to_vector_code_chunks" LIMIT 10'
+            query = 'SELECT * FROM "github_to_vector_text" LIMIT 10'
             df = pd.read_sql(query, conn)
 
             print("Snowflake connection test successful. Retrieved rows:")

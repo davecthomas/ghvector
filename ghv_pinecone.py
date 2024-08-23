@@ -3,6 +3,8 @@ from pinecone import Pinecone, ServerlessSpec, UpsertResponse
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 from ghv_openai import GhvOpenAI
+from ghv_snowflake import GhvSnowflake
+from ghv_github import GhvGithub
 import pandas as pd
 from datetime import datetime
 import re
@@ -62,14 +64,9 @@ class GhvPinecone:
             model_name (str): The name of the embedding model being used, included in the index name.
             dimensions (int): The number of dimensions for the embedding vectors.
         """
-        from datetime import datetime
-
-        # Generate a timestamp to ensure the index name is unique
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
         # Construct and clean the initial index name
         index_name = f"{self.project_name}_{
-            embedding_model_name[:20]}_{dimension}_{timestamp}"
+            embedding_model_name[:20]}_{dimension}"
         cleaned_index_name = re.sub(r'[^a-z0-9\-]', '-', index_name.lower())
         self.index_name = cleaned_index_name[:45]
 
@@ -232,7 +229,7 @@ class GhvPinecone:
         return read_units * self.READ_COST_PER_MILLION_UNITS
 
 
-def test_embedding_insert(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvOpenAI) -> int:
+def gen_embedding_and_upsert(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvOpenAI) -> int:
     """
     Stores a test vector from the test dictionary.
 
@@ -286,6 +283,7 @@ def test_embedding_search(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvO
             "dimensions": ghv_openai.dimensions,
             "prompt": dict_test["prompt"],
             "text": dict_test["text"],
+            "result_id": result.get("id", ""),
             "score": float(result.get("score", 0.0)),
             "num_tokens": num_tokens,
             "cost": float(pricing_per_token) * num_tokens,
@@ -468,7 +466,26 @@ if __name__ == "__main__":
     dicts: Dict = {}
     ghv_openai_client: GhvOpenAI = None
     pinecone_client: GhvPinecone = None
+    snowflake_client: GhvSnowflake = GhvSnowflake()
+    github_client = GhvGithub()
 
+    # Initialize the Snowflake row dictionary which we'll update in the loop below then store
+    snowflake_row: Dict[str, Any] = {
+        "org_name": github_client.repo_owner,          # GitHub organization name
+        "repo_name": "",                    # Repository name within the organization
+        "file_name": "",                    # File name where the code chunk resides
+        "line_start": 0,                    # Starting line number of the code chunk
+        "line_end": 0,                      # Ending line number of the code chunk
+        # Text that is vectorized and stored as embedding in Pinecone
+        "text": "",
+        # String-based identifier for the embedding in Pinecone
+        "embedding_id": "",
+        # Timestamp for when the record was stored (None means use the default current timestamp)
+        "storage_datetime": None
+    }
+
+    # Iterate over each embedding test and generate embeddings for each model
+    # Then upsert the embeddings to Pinecone and store the embeddings reference info in Snowflake
     for model, model_settings in GhvOpenAI.embedding_models.items():
         dicts[model] = {"openai": None, "pinecone": None}
         # Initialize OpenAI client with the specific model and dimensions
@@ -482,12 +499,17 @@ if __name__ == "__main__":
 
         count: int = 0
         for embedding_test in embedding_tests:
-            count += test_embedding_insert(pinecone_client,
-                                           embedding_test, ghv_openai_client)
+            count += gen_embedding_and_upsert(pinecone_client,
+                                              embedding_test, ghv_openai_client)
+            snowflake_row["text"] = embedding_test["text"]
+            snowflake_row["embedding_id"] = embedding_test["id"]
+            snowflake_client.store_single_embedding(
+                snowflake_row)
 
             print(f"\r\tInsert count: {count}", end="")
         print("\n")
 
+    # Iterate over each embedding test and query the embeddings for each model
     for model, model_settings in GhvOpenAI.embedding_models.items():
         print(f"\nTesting prompt queries with model: {model}")
 
@@ -502,6 +524,15 @@ if __name__ == "__main__":
             # Merge the results into the overall DataFrame
             all_results_df = pd.concat(
                 [all_results_df, results_df], ignore_index=True)
+
+    # For each row in the dataframe, query the snowflake table for the embedding data
+    # This is the ultimate test to tie back the scored results to the original text and evaluate the quality of the match
+    for index, row in all_results_df.iterrows():
+        embedding_data = snowflake_client.read_embedding_by_id(
+            row["result_id"])
+        # Add this data to the results DataFrame
+        all_results_df.at[index, "original_text"] = embedding_data.to_dict(
+            orient="records")
 
     # Sort the final DataFrame by score in descending order, since that's what we're interested in
     all_results_df = all_results_df.sort_values(by="score", ascending=False)
