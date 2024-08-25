@@ -83,11 +83,15 @@ EMBEDDING_DIMENSIONS=1536
 
 # Pinecone Settings
 PINECONE_API_KEY=
-PINECONE_INDEX_NAME=
 PINECONE_DIMENSION=512
 PINECONE_METRIC=cosine
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
+PINECONE_PROJECT_NAME=
+# The full index name is built from the base, the embedding model, and dimensions
+PINECONE_BASE_INDEX_NAME=
+# true in test mode will cause all indexes to be deleted at GhvPicecone init
+PINECONE_TEST_MODE=
 
 OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=

@@ -11,6 +11,16 @@ import re
 
 
 class GhvPinecone:
+    """
+    Class for interacting with Pinecone to store and query embeddings.
+    Sequence:   1 - Constructor: Initialize Pinecone client
+                2 - Create or reuse existing index
+                3 - Upsert vectors (from model embeddings)
+                4 - Query vector (with a search embedding)
+
+    Test mode:  If PINECONE_TEST_MODE is set to True, all indexes in the project are deleted.
+    This is transparent to the client. We delete everything during GhvPinecone initialization.
+    """
     # Class constants for Pinecone pricing
     STORAGE_COST_PER_GB_PER_HOUR = 0.00045
     WRITE_COST_PER_MILLION_UNITS = 2.00
@@ -42,9 +52,30 @@ class GhvPinecone:
             self.embedding_model_name = embedding_model_name
 
         self.pc = Pinecone(api_key=self.api_key)
-        self.create_or_reuse_index(embedding_model_name, dimension)
 
-    def check_index_exists(self, index_name: str) -> bool:
+        # Until these vars are set, we don't have a valid index and can't upsert, etc.
+        # So we'll set them in the get_and_prep_index function
+        self.index_name = ""
+        self.index_description = None
+        self.index_host = ""
+        self.index = None
+
+        # Test mode: delete all indexes in the project
+        if os.getenv("PINECONE_TEST_MODE", "False").lower() == "true":
+            self._delete_all_indexes()
+
+    def get_and_prep_index(self) -> str:
+        """
+        Creates or reuses a Pinecone index based on the specified embedding model and dimensions.
+        """
+        self.index_name = self._create_or_reuse_index(
+            self.embedding_model_name, self.dimension)
+        self.index_description: str = self.pc.describe_index(self.index_name)
+        self.index_host = self.index_description.host
+        self.index = self.pc.Index(self.index_name, host=self.index_host)
+        return self.index_name
+
+    def _check_index_exists(self, index_name: str) -> bool:
         """
         Checks if a Pinecone index with the given name already exists.
 
@@ -56,7 +87,7 @@ class GhvPinecone:
         """
         return index_name in self.pc.list_indexes().names()
 
-    def create_or_reuse_index(self, embedding_model_name: str, dimension: int):
+    def _create_or_reuse_index(self, embedding_model_name: str, dimension: int) -> str:
         """
         Creates a new Pinecone index or reuses an existing one if it already exists.
 
@@ -65,16 +96,15 @@ class GhvPinecone:
             dimensions (int): The number of dimensions for the embedding vectors.
         """
         # Construct and clean the initial index name
-        index_name = f"{self.project_name}_{
+        index_name = f"{self.base_index_name}_{
             embedding_model_name[:20]}_{dimension}"
         cleaned_index_name = re.sub(r'[^a-z0-9\-]', '-', index_name.lower())
         self.index_name = cleaned_index_name[:45]
 
         # Check if the index already exists using the check_index_exists function
-        if self.check_index_exists(self.index_name):
+        if self._check_index_exists(self.index_name):
             print(
-                f"Index '{self.index_name}' already exists. Reusing the existing index.")
-            self.index = self.pc.Index(self.index_name)
+                f"\tIndex '{self.index_name}' already exists. Reusing the existing index.")
         else:
             # Create the new index if it doesn't exist
             self.pc.create_index(
@@ -86,9 +116,9 @@ class GhvPinecone:
                     region=os.getenv("PINECONE_REGION", "us-east-1")
                 )
             )
-            self.index = self.pc.Index(self.index_name)
-            print(f"Created Pinecone index '{self.index_name}' with {
+            print(f"\tCreated Pinecone index '{self.index_name}' with {
                   dimension} dimensions and '{self.metric}' metric.")
+        return self.index_name
 
     def _connect_to_index(self):
         """
@@ -118,6 +148,9 @@ class GhvPinecone:
                 - 'values': The vector embedding.
                 - 'metadata': Optional metadata associated with the vector.
         """
+        if not self.index:
+            print("\tNo index connected. Please connect to an index first.")
+            return 0
         # vector_length: int = len(vectors[0].get("values", []))
         num_vectors: int = len(vectors)
         upsert_response: UpsertResponse = self.index.upsert(vectors)
@@ -141,6 +174,9 @@ class GhvPinecone:
         Returns:
             List[Dict[str, Any]]: A list of the top_k most similar vectors.
         """
+        if not self.index:
+            print("\tNo index connected. Please connect to an index first.")
+            return []
         result = self.index.query(
             vector=vector, top_k=top_k)  # Perform the query
         print(f"Query result: {result['matches']}")
@@ -153,6 +189,9 @@ class GhvPinecone:
         Args:
             vector_id (str): The ID of the vector to delete.
         """
+        if not self.index:
+            print("\tNo index connected. Please connect to an index first.")
+            return
         self.index.delete(ids=[vector_id])
         print(f"Deleted vector with ID: {
               vector_id} from Pinecone index: {self.index_name}")
@@ -167,6 +206,9 @@ class GhvPinecone:
         Returns:
             Dict[str, Any]: The fetched vector data.
         """
+        if not self.index:
+            print("\tNo index connected. Please connect to an index first.")
+            return {}
         result = self.index.fetch(ids=[vector_id])  # Fetch the vector by ID
         return result  # Return the fetched vector data
 
@@ -177,7 +219,30 @@ class GhvPinecone:
         Returns:
             Dict[str, Any]: The stats of the Pinecone index.
         """
+        if not self.index:
+            print("\tNo index connected. Please connect to an index first.")
+            return {}
         return self.index.describe_index_stats()  # Get and return the index stats
+
+    def _delete_all_indexes(self):
+        """
+        Deletes all indexes in the Pinecone project. DANGER!!
+        """
+        # List all indexes in the project
+        indexes = self.pc.list_indexes().names()
+
+        if not indexes:
+            print("No indexes found in the project.")
+            return
+
+        # Iterate through the list of indexes and delete each one
+        count: int = 0
+        for index_name in indexes:
+            print(f"\r\tDeleting index: {index_name}", end="")
+            self.pc.delete_index(name=index_name)
+            count += 1
+
+        print(f"\n{count} indexes have been deleted.")
 
     def calculate_storage_cost(self, dimensions: int, num_vectors: int = 1, hours: int = 1) -> float:
         """
@@ -281,6 +346,7 @@ def test_embedding_search(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvO
         row = {
             "embedding_model": ghv_openai.embedding_model,
             "dimensions": ghv_openai.dimensions,
+            "index_name": ghv_pc.index_name,
             "prompt": dict_test["prompt"],
             "text": dict_test["text"],
             "result_id": result.get("id", ""),
@@ -472,14 +538,15 @@ if __name__ == "__main__":
     # Initialize the Snowflake row dictionary which we'll update in the loop below then store
     snowflake_row: Dict[str, Any] = {
         "org_name": github_client.repo_owner,          # GitHub organization name
-        "repo_name": "",                    # Repository name within the organization
-        "file_name": "",                    # File name where the code chunk resides
+        "repo_name": "test",                # Repository name within the organization
+        "file_name": "test.py",             # File name where the code chunk resides
         "line_start": 0,                    # Starting line number of the code chunk
         "line_end": 0,                      # Ending line number of the code chunk
         # Text that is vectorized and stored as embedding in Pinecone
         "text": "",
         # String-based identifier for the embedding in Pinecone
         "embedding_id": "",
+        "index_name": "",    # Name of the Pinecone index where the embedding is stored
         # Timestamp for when the record was stored (None means use the default current timestamp)
         "storage_datetime": None
     }
@@ -494,6 +561,7 @@ if __name__ == "__main__":
         dicts[model]["openai"] = ghv_openai_client
         pinecone_client = GhvPinecone(
             embedding_model_name=model, dimension=model_settings["dimensions"])
+        index_name = pinecone_client.get_and_prep_index()
         dicts[model]["pinecone"] = pinecone_client
         print(f"\tInserting embeddings with model: {model}")
 
@@ -503,6 +571,7 @@ if __name__ == "__main__":
                                               embedding_test, ghv_openai_client)
             snowflake_row["text"] = embedding_test["text"]
             snowflake_row["embedding_id"] = embedding_test["id"]
+            snowflake_row["index_name"] = index_name
             snowflake_client.store_single_embedding(
                 snowflake_row)
 

@@ -4,7 +4,7 @@ from typing import Dict, Optional, List, Any
 import pandas as pd
 import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class GhvSnowflake:
@@ -24,8 +24,14 @@ class GhvSnowflake:
     def close_connection(self):
         """Closes the Snowflake connection if it's open."""
         if self.conn is not None and not self.conn.is_closed():
-            self.conn.close()
-            self.conn = None
+            try:
+                self.conn.close()
+                print("Snowflake connection closed.")
+            except snowflake.connector.Error as e:
+                print(f"Error closing Snowflake connection: {e}")
+                raise
+            finally:
+                self.conn = None  # Reset the cached connection to None
 
     def get_db_env(self) -> Dict[str, str]:
         """Fetches database environment variables."""
@@ -76,14 +82,39 @@ class GhvSnowflake:
         df = pd.DataFrame(data)
 
         try:
-            success, nchunks, nrows, _ = write_pandas(
+            success, num_chunks, num_rows, output = write_pandas(
                 conn, df, '"github_to_vector_text"')
-            if success:
-                print(f"Successfully inserted {nrows} rows into Snowflake.")
-            else:
-                print("Failed to insert rows into Snowflake.")
+
+            if not success:
+                raise ValueError(
+                    f"Failed to write data to Snowflake. Output: {output}")
+
+            print(f"Successfully inserted {num_rows} rows into Snowflake.")
+
+        except snowflake.connector.errors.ProgrammingError as e:
+            print(f"Programming error during the insertion to Snowflake: {e}")
+            # Handle or log the error, and raise it if necessary
+            raise
+
+        except snowflake.connector.errors.DatabaseError as e:
+            print(f"Database error during the insertion to Snowflake: {e}")
+            # Handle or log the error, and raise it if necessary
+            raise
+
+        except snowflake.connector.Error as e:
+            print(f"General Snowflake error: {e}")
+            # Handle or log the error, and raise it if necessary
+            raise
+
+        except ValueError as e:
+            print(f"Value error: {e}")
+            # Handle or log the error, and raise it if necessary
+            raise
+
         except Exception as e:
-            print(f"Error inserting data into Snowflake: {e}")
+            print(f"Unexpected error: {e}")
+            # Handle or log the error, and raise it if necessary
+            raise
 
     def read_embedding_data(self, repo_name: str, file_name: str) -> pd.DataFrame:
         """
@@ -116,25 +147,49 @@ class GhvSnowflake:
 
         Args:
             data (Dict[str, Any]): A dictionary containing the data for a single embedding.
+            commit (bool): Whether to commit the transaction after the insertion.
         """
+        required_columns: List[str] = [
+            "org_name", "repo_name", "file_name", "line_start",
+            "line_end", "text", "index_name", "embedding_id"
+        ]
+
+        # Ensure all required fields are present and not None
+        for column in required_columns:
+            if column not in data or data[column] is None:
+                raise ValueError(
+                    f"Missing or null value for required column: {column}")
+
         conn = self.get_snowflake_connection()
+        cursor = conn.cursor()
 
         # Override storage_datetime with current timestamp
-        data["storage_datetime"] = datetime.utcnow().strftime(
-            '%Y-%m-%d %H:%M:%S.%f')[:-3]
-
-        # Convert the single dictionary to a DataFrame
-        df = pd.DataFrame([data])
+        data["storage_datetime"] = datetime.now(
+            timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
         try:
-            success, nchunks, nrows, _ = write_pandas(
-                conn, df, '"github_to_vector_text"')
-            if success:
-                print(f"Successfully inserted {nrows} row into Snowflake.")
-            else:
-                print("Failed to insert the row into Snowflake.")
+            # Construct the SQL INSERT statement
+            insert_sql = """
+            INSERT INTO "github_to_vector_text" 
+            ("org_name", "repo_name", "file_name", "line_start", "line_end", "text", "embedding_id", "storage_datetime")
+            VALUES (%(org_name)s, %(repo_name)s, %(file_name)s, %(line_start)s, %(line_end)s, %(text)s, %(embedding_id)s, %(storage_datetime)s)
+            """
+            # Execute the SQL command with the provided data
+            cursor.execute(insert_sql, data)
+            conn.commit()
+
+            print(f"Successfully inserted the record into Snowflake.")
+
+        except snowflake.connector.Error as e:
+            print(f"Error during the insertion to Snowflake: {e}")
+            raise
+
         except Exception as e:
-            print(f"Error inserting the record into Snowflake: {e}")
+            print(f"Unexpected error: {e}")
+            raise
+
+        finally:
+            cursor.close()
 
     def read_embedding_by_id(self, embedding_id: str) -> pd.DataFrame:
         """
@@ -156,9 +211,15 @@ class GhvSnowflake:
         try:
             df = pd.read_sql(query, conn)
             return df
+        except snowflake.connector.Error as e:
+            print(f"Error reading embedding from Snowflake: {e}")
+            # Handle or log the error, and raise it if necessary
+            raise
+
         except Exception as e:
-            print(f"Error reading data from Snowflake by embedding_id: {e}")
-            return pd.DataFrame()  # Return an empty DataFrame on error
+            print(f"Unexpected error: {e}")
+            # Handle or log the error, and raise it if necessary
+            raise
 
     def test_connection(self) -> bool:
         """Tests opening a connection to Snowflake and performing a basic SELECT query."""
