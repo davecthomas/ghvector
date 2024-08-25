@@ -1,5 +1,5 @@
 import os
-from pinecone import Pinecone, ServerlessSpec, UpsertResponse
+from pinecone import Pinecone, ServerlessSpec, UpsertResponse, UnauthorizedException
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 from ghv_openai import GhvOpenAI
@@ -60,8 +60,12 @@ class GhvPinecone:
         self.index_host = ""
         self.index = None
 
+    def delete_all_indexes(self):
+        """
+        Deletes all indexes in the Pinecone project. DANGER!!
+        """
         # Test mode: delete all indexes in the project
-        if os.getenv("PINECONE_TEST_MODE", "False").lower() == "true":
+        if os.getenv("PINECONE_TEST_MODE", "false").lower() == "true":
             self._delete_all_indexes()
 
     def get_and_prep_index(self) -> str:
@@ -177,10 +181,23 @@ class GhvPinecone:
         if not self.index:
             print("\tNo index connected. Please connect to an index first.")
             return []
-        result = self.index.query(
-            vector=vector, top_k=top_k)  # Perform the query
-        print(f"Query result: {result['matches']}")
-        return result['matches']  # Return the list of matches
+        try:
+            # Perform the query
+            result = self.index.query(vector=vector, top_k=top_k)
+            print(f"Query result: {result['matches']}")
+            return result['matches']  # Return the list of matches
+
+        except UnauthorizedException as e:
+            # Handle unauthorized access specifically
+            print(f"UnauthorizedException: {e}")
+            print(
+                "Please check your API key and ensure you have the necessary permissions.")
+            raise  # Re-raise the exception to signal the failure
+
+        except Exception as e:
+            # General exception handling
+            print(f"An error occurred during the query: {e}")
+            raise  # Re-raise the exception to ensure it's not silently ignored
 
     def delete_vector(self, vector_id: str):
         """
@@ -242,7 +259,7 @@ class GhvPinecone:
             self.pc.delete_index(name=index_name)
             count += 1
 
-        print(f"\n{count} indexes have been deleted.")
+        print(f"\n\t{count} indexes have been deleted.")
 
     def calculate_storage_cost(self, dimensions: int, num_vectors: int = 1, hours: int = 1) -> float:
         """
@@ -528,6 +545,10 @@ if __name__ == "__main__":
         }
     ]
 
+    # Delete all indexes in the project if test mode is enabled
+    delete_indexes: GhvPinecone = GhvPinecone()
+    delete_indexes.delete_all_indexes()
+
     # Cache the GhvOpenAI and GhvPinecone instances for each model since we reuse them
     dicts: Dict = {}
     ghv_openai_client: GhvOpenAI = None
@@ -597,11 +618,16 @@ if __name__ == "__main__":
     # For each row in the dataframe, query the snowflake table for the embedding data
     # This is the ultimate test to tie back the scored results to the original text and evaluate the quality of the match
     for index, row in all_results_df.iterrows():
+        # Query the Snowflake table for the embedding data
         embedding_data = snowflake_client.read_embedding_by_id(
             row["result_id"])
-        # Add this data to the results DataFrame
-        all_results_df.at[index, "original_text"] = embedding_data.to_dict(
-            orient="records")
+
+        if not embedding_data.empty:
+            # Extract the "text" column and store it in the "original_text" column
+            all_results_df.at[index,
+                              "original_text"] = embedding_data["text"].iloc[0]
+        else:
+            all_results_df.at[index, "original_text"] = None
 
     # Sort the final DataFrame by score in descending order, since that's what we're interested in
     all_results_df = all_results_df.sort_values(by="score", ascending=False)

@@ -171,14 +171,14 @@ class GhvSnowflake:
             # Construct the SQL INSERT statement
             insert_sql = """
             INSERT INTO "github_to_vector_text" 
-            ("org_name", "repo_name", "file_name", "line_start", "line_end", "text", "embedding_id", "storage_datetime")
-            VALUES (%(org_name)s, %(repo_name)s, %(file_name)s, %(line_start)s, %(line_end)s, %(text)s, %(embedding_id)s, %(storage_datetime)s)
+            ("org_name", "repo_name", "file_name", "line_start", "line_end", "text", "index_name", "embedding_id", "storage_datetime")
+            VALUES (%(org_name)s, %(repo_name)s, %(file_name)s, %(line_start)s, %(line_end)s, %(text)s, %(index_name)s, %(embedding_id)s, %(storage_datetime)s)
             """
             # Execute the SQL command with the provided data
             cursor.execute(insert_sql, data)
             conn.commit()
 
-            print(f"Successfully inserted the record into Snowflake.")
+            # print(f"Successfully inserted the record into Snowflake.")
 
         except snowflake.connector.Error as e:
             print(f"Error during the insertion to Snowflake: {e}")
