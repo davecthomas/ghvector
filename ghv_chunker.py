@@ -202,7 +202,7 @@ class PythonChunker(GhvChunker):
     def _add_chunk(self, chunk: str) -> int:
         if len(self.chunks) < self.MAX_CHUNKS_PER_FILE:
             self.chunks.append(chunk)
-            print(f"\r\tAdded chunk {len(self.chunks)}", end="")
+            print(f"\r\tAdded {len(self.chunks)} chunks.", end="")
         else:
             print(f"\n\tMax chunks of {
                   self.MAX_CHUNKS_PER_FILE} per file limit reached.")

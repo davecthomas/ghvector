@@ -3,9 +3,10 @@
 from ghv_github import GhvGithub
 from ghv_openai import GhvOpenAI
 from ghv_snowflake import GhvSnowflake
+from ghv_pinecone import GhvPinecone
 from dotenv import load_dotenv
 import os
-from typing import List, Dict
+from typing import Any, List, Dict
 
 
 class GhvMain:
@@ -14,6 +15,13 @@ class GhvMain:
         self.github_client = GhvGithub()
         self.openai_client = GhvOpenAI()
         self.snowflake_client = GhvSnowflake()
+        self.pinecone_client = GhvPinecone()
+        # Conditionally delete all indexes (test mode)
+        self.pinecone_client.delete_all_indexes()
+        self.repo_names = os.getenv("REPO_NAMES", "").split(",")
+        if not self.repo_names:
+            self.repo_names = []
+            raise ValueError("No repositories found in REPO_NAMES.")
 
     def get_test_repo(self) -> str:
         """
@@ -22,10 +30,7 @@ class GhvMain:
         Returns:
             str: The name of the first repository in the list.
         """
-        repo_names = os.getenv("REPO_NAMES", "").split(",")
-        if not repo_names:
-            raise ValueError("No repositories found in REPO_NAMES.")
-        return repo_names[0].strip()
+        return self.repo_names[0].strip()
 
     def process_repository(self, repo_name: str):
         """
@@ -34,20 +39,64 @@ class GhvMain:
         Args:
             repo_name (str): The name of the repository to process.
         """
-        # Fetch file chunks from the specified repository
-        print(f"Fetching file chunks from repository: {repo_name}")
-        file_chunks: List[str] = self.github_client.get_file_chunks(
-            file_info, test_mode=True)
+        # Step 1: List all files in the repository
+        print(f"Listing files in repository: {repo_name}")
+        files = self.github_client.list_files_in_repo(repo_name)
 
-        # Generate embeddings for each chunk and store in Snowflake
-        for file_info, chunks in file_chunks.items():
-            print(f"Processing file: {file_info}")
-            embeddings = self.openai_client.process_file_chunks(
-                chunks, file_info)
+        # Step 2: Process each file
+        for file_info in files:
+            print(f"\tFetching chunks from file: {file_info['path']}")
+            file_chunks: List[str] = None
+            file_chunks = self.github_client.get_file_chunks(file_info)
 
-            # Store the embeddings in Snowflake
-            print(f"Storing embeddings for file: {file_info}")
-            self.snowflake_client.store_embedding_data(embeddings)
+            # Generate embeddings for each chunk and store in Snowflake
+            if file_chunks:
+                embeddings = self.openai_client.process_file_chunks(
+                    file_chunks, file_info)
+
+                list_dict_upsert: List[Dict[str, Any]] = []
+                list_dict_snowflake: List[Dict[str, Any]] = []
+                for i, embedding in enumerate(embeddings):
+                    embedding_id = self.github_client.repo_owner + "/" + embedding["repo"] + "/" + (
+                        f"_{embedding['folder']}/" if embedding["folder"] else "") + embedding["path"] + ":" + str(i)
+                    list_dict_upsert.append({
+                        "id": embedding_id,
+                        "values": embedding["embedding"],
+                        "metadata": {"chunk": embedding["chunk"]}
+                    })
+                    list_dict_snowflake.append({
+                        "org_name": self.github_client.repo_owner,
+                        "repo_name": embedding["repo"],
+                        "file_folder": embedding["folder"],
+                        "file_name": embedding["path"],
+                        "text": embedding["chunk"],
+                        "index_name": self.pinecone_client.index_name,
+                        "embedding_id": embedding_id
+                    })
+
+                # Store the embeddings in Pinecone
+                print(f"\nStoring embeddings for file: {file_info['path']}")
+                self.pinecone_client.get_and_prep_index()
+
+                # Upsert the function embedding to Pinecone
+                upserted_count: int = self.pinecone_client.upsert_vectors(
+                    list_dict_upsert)
+
+                # Store the embeddings in Snowflake
+                print(f"Storing embeddings in Snowflake for file: {
+                      file_info['path']}")
+                for dict_upsert in list_dict_snowflake:
+                    snowflake_embedding: Dict[str, Any] = {
+                        "org_name": self.github_client.repo_owner,
+                        "repo_name": embedding["repo"],
+                        "file_folder": embedding["folder"],
+                        "file_name": embedding["path"],
+                        "text": dict_upsert["metadata"]["chunk"],
+                        "index_name": self.pinecone_client.index_name,
+                        "embedding_id": dict_upsert["id"]
+                    }
+                    self.snowflake_client.store_single_embedding(
+                        snowflake_embedding)
 
         print(f"Processing of repository {repo_name} completed.")
 
@@ -60,8 +109,11 @@ class GhvMain:
 
 
 if __name__ == "__main__":
-    # Initialize the main class
     main_processor = GhvMain()
 
+    # For each repo, chunk every file and generate embeddings, then store them
+    for repo_name in main_processor.repo_names:
+        main_processor.process_repository(repo_name)
+
     # Test the entire workflow
-    main_processor.test_workflow()
+    # main_processor.test_workflow()

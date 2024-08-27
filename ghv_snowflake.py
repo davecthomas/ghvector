@@ -71,51 +71,6 @@ class GhvSnowflake:
                     "Could not connect to Snowflake after multiple attempts.")
         return self.conn
 
-    def store_embedding_data(self, data: List[Dict[str, Any]]):
-        """
-        Stores the embedding data in the Snowflake table 'github_to_vector_text'.
-
-        Args:
-            data (List[Dict[str, Any]]): A list of dictionaries containing the embedding data.
-        """
-        conn = self.get_snowflake_connection()
-        df = pd.DataFrame(data)
-
-        try:
-            success, num_chunks, num_rows, output = write_pandas(
-                conn, df, '"github_to_vector_text"')
-
-            if not success:
-                raise ValueError(
-                    f"Failed to write data to Snowflake. Output: {output}")
-
-            print(f"Successfully inserted {num_rows} rows into Snowflake.")
-
-        except snowflake.connector.errors.ProgrammingError as e:
-            print(f"Programming error during the insertion to Snowflake: {e}")
-            # Handle or log the error, and raise it if necessary
-            raise
-
-        except snowflake.connector.errors.DatabaseError as e:
-            print(f"Database error during the insertion to Snowflake: {e}")
-            # Handle or log the error, and raise it if necessary
-            raise
-
-        except snowflake.connector.Error as e:
-            print(f"General Snowflake error: {e}")
-            # Handle or log the error, and raise it if necessary
-            raise
-
-        except ValueError as e:
-            print(f"Value error: {e}")
-            # Handle or log the error, and raise it if necessary
-            raise
-
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            # Handle or log the error, and raise it if necessary
-            raise
-
     def read_embedding_data(self, repo_name: str, file_name: str) -> pd.DataFrame:
         """
         Reads the embedding data from the Snowflake table 'github_to_vector_text' for a specific file.
@@ -150,8 +105,8 @@ class GhvSnowflake:
             commit (bool): Whether to commit the transaction after the insertion.
         """
         required_columns: List[str] = [
-            "org_name", "repo_name", "file_name", "line_start",
-            "line_end", "text", "index_name", "embedding_id"
+            "org_name", "repo_name", "file_folder", "file_name",
+            "text", "index_name", "embedding_id"
         ]
 
         # Ensure all required fields are present and not None
@@ -171,8 +126,8 @@ class GhvSnowflake:
             # Construct the SQL INSERT statement
             insert_sql = """
             INSERT INTO "github_to_vector_text" 
-            ("org_name", "repo_name", "file_name", "line_start", "line_end", "text", "index_name", "embedding_id", "storage_datetime")
-            VALUES (%(org_name)s, %(repo_name)s, %(file_name)s, %(line_start)s, %(line_end)s, %(text)s, %(index_name)s, %(embedding_id)s, %(storage_datetime)s)
+            ("org_name", "repo_name", "file_folder", "file_name", "text", "index_name", "embedding_id", "storage_datetime")
+            VALUES (%(org_name)s, %(repo_name)s, %(file_folder)s, %(file_name)s, %(text)s, %(index_name)s, %(embedding_id)s, %(storage_datetime)s)
             """
             # Execute the SQL command with the provided data
             cursor.execute(insert_sql, data)
