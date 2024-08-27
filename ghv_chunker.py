@@ -115,6 +115,15 @@ class PythonChunker(GhvChunker):
 
             # Handle decorator lines (e.g., @abstractmethod)
             if stripped_line.startswith('@'):
+                if current_chunk:
+                    # Finalize the current chunk before starting a new chunk for the decorator
+                    chunk_number = self._add_chunk("\n".join(current_chunk))
+                    if chunk_number >= self.MAX_CHUNKS_PER_FILE:
+                        break  # Exit if the maximum number of chunks is reached
+                    current_chunk = []
+                    current_size = 0
+
+                # Start a new chunk with the decorator
                 current_chunk.append(line)
                 current_size += token_count
 
@@ -125,6 +134,17 @@ class PythonChunker(GhvChunker):
                         current_chunk.append(lines[i + 1])
                         current_size += self._estimate_token_count(next_line)
                         i += 1
+                        # Look ahead for the rest of the function/method block
+                        while i + 1 < len(lines):
+                            next_line = lines[i + 1].strip()
+                            if next_line.startswith(('def ', 'class ', '@')):
+                                break  # Stop if the next line starts a new decorator, function, or class
+                            current_chunk.append(lines[i + 1])
+                            current_size += self._estimate_token_count(
+                                next_line)
+                            i += 1
+
+                continue  # Move to the next line after handling the decorator
 
             # Detect block starts (e.g., def, class, if, etc.)
             block_start = False
@@ -145,9 +165,8 @@ class PythonChunker(GhvChunker):
                     current_size = 0
 
             # Add the current line to the chunk
-            if not stripped_line.startswith('@'):
-                current_chunk.append(line)
-                current_size += token_count
+            current_chunk.append(line)
+            current_size += token_count
 
             # Ensure sequential lines are grouped together
             if not block_start and current_size < self.MAX_CHUNK_SIZE:
@@ -155,8 +174,9 @@ class PythonChunker(GhvChunker):
                 while lookahead < len(lines):
                     lookahead_line = lines[lookahead].strip()
 
-                    if lookahead_line.startswith(('def ', 'class ')):
-                        break  # Stop if the next line starts a new function or class
+                    # Ensure the loop breaks if a decorator or block start is found
+                    if lookahead_line.startswith(('@', 'def ', 'class ')):
+                        break  # Stop if the next line starts a new decorator, function, or class
 
                     current_chunk.append(lines[lookahead])
                     current_size += self._estimate_token_count(lookahead_line)
