@@ -25,6 +25,7 @@ class GhvPinecone:
     STORAGE_COST_PER_GB_PER_HOUR = 0.00045
     WRITE_COST_PER_MILLION_UNITS = 2.00
     READ_COST_PER_MILLION_UNITS = 8.25
+    COST_SCALE_FACTOR = 1_000
     BYTES_PER_DIMENSION = 4
 
     def __init__(self, embedding_model_name="", base_index_name: str = "", metric: str = "", dimension: int = 0):
@@ -263,7 +264,7 @@ class GhvPinecone:
 
     def calculate_storage_cost(self, dimensions: int, num_vectors: int = 1, hours: int = 1) -> float:
         """
-        Calculates the cost of storing vectors in Pinecone.
+        Calculates the cost of storing 1000 vectors in Pinecone.
 
         Args:
             num_vectors (int): The number of vectors being stored.
@@ -280,11 +281,11 @@ class GhvPinecone:
         total_storage_gb = (num_vectors * vector_size_bytes) / bytes_per_gb
 
         # Total storage cost
-        return total_storage_gb * self.STORAGE_COST_PER_GB_PER_HOUR * hours
+        return total_storage_gb * self.STORAGE_COST_PER_GB_PER_HOUR * hours * self.COST_SCALE_FACTOR
 
     def calculate_write_cost(self, num_vectors: int = 1) -> float:
         """
-        Calculates the cost of writing vectors to Pinecone.
+        Calculates the cost of writing 1000 vectors to Pinecone.
 
         Args:
             num_vectors (int): The number of vectors being written.
@@ -294,11 +295,11 @@ class GhvPinecone:
         """
         # Pinecone charges $2.00 per 1M Write Units
         write_units = num_vectors / 1_000_000
-        return write_units * self.WRITE_COST_PER_MILLION_UNITS
+        return write_units * self.WRITE_COST_PER_MILLION_UNITS * self.COST_SCALE_FACTOR
 
     def calculate_read_cost(self, num_queries: int = 1) -> float:
         """
-        Calculates the cost of querying vectors in Pinecone.
+        Calculates the cost of querying 1000 vectors in Pinecone.
 
         Args:
             num_queries (int): The number of queries made.
@@ -308,7 +309,7 @@ class GhvPinecone:
         """
         # Pinecone charges $8.25 per 1M Read Units
         read_units = num_queries / 1_000_000
-        return read_units * self.READ_COST_PER_MILLION_UNITS
+        return read_units * self.READ_COST_PER_MILLION_UNITS * self.COST_SCALE_FACTOR
 
 
 def gen_embedding_and_upsert(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvOpenAI) -> int:
@@ -399,9 +400,7 @@ if __name__ == "__main__":
         },
         {
             "id": "embedding-test-2",
-            "text": """
-            When integrating embeddings with a vector database, it is essential to ensure that the dimensions of the embeddings align with the database configuration.
-            Mismatched dimensions can lead to errors and suboptimal performance. Additionally, the choice of embedding model can significantly impact both the accuracy and efficiency of your search queries.
+            "text": """When integrating embeddings with a vector database, it is essential to ensure that the dimensions of the embeddings align with the database configuration. Mismatched dimensions can lead to errors and suboptimal performance. Additionally, the choice of embedding model can significantly impact both the accuracy and efficiency of your search queries.
             """,
             "prompt": "How do you ensure that the dimensions of embeddings align with the database configuration?",
             "metadata": {"description": "Test for embedding dimension alignment"}

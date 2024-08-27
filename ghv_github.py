@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from requests.models import Response
 from requests.exceptions import Timeout, RequestException, HTTPError, ConnectionError
 from urllib3.exceptions import ProtocolError
+from ghv_chunker import GhvChunker
 
 # Globals
 GITHUB_API_BASE_URL = "https://api.github.com"
@@ -256,13 +257,12 @@ class GhvGithub:
         print(f"Failed to list files in repository {repo_name}")
         return file_list  # Return empty list if no files are found
 
-    def get_file_chunks(self, file_info: Dict[str, str], chunk_size: int = 512, test_mode: bool = False, test_chunk_limit: int = 10) -> List[str]:
+    def get_file_chunks(self, file_info: Dict[str, str], test_mode: bool = False, test_chunk_limit: int = 10) -> List[str]:
         """
-        Retrieves and chunks the content of a file from the GitHub repository.
+        Retrieves and chunks the content of a file from the GitHub repository using the GhvChunker class.
 
         Args:
             file_info (Dict[str, str]): A dictionary containing 'repo', 'path', and other relevant keys.
-            chunk_size (int): The size of each chunk. Defaults to 512 characters.
             test_mode (bool): Whether to limit the number of chunks for testing. Defaults to False.
             test_chunk_limit (int): The number of chunks to pull in test mode. Defaults to 10.
 
@@ -274,24 +274,30 @@ class GhvGithub:
         url = f"{
             GITHUB_API_BASE_URL}/repos/{self.repo_owner}/{repo_name}/contents/{file_path}"
 
-        response = requests.get(url, headers=self.headers)
+        # Use the exponential backoff function to make the API request
+        response_pages = self.github_request_exponential_backoff(url)
 
-        if response.status_code == 200:
-            file_content = response.json().get("content", "")
-            # Decode the content if it’s base64 encoded (as GitHub API does)
-            content_decoded = base64.b64decode(file_content).decode('utf-8')
-            # Chunk the content
-            chunks = [content_decoded[i:i + chunk_size]
-                      for i in range(0, len(content_decoded), chunk_size)]
+        if response_pages:
+            # Process each page (in this case, it should be just one page for a file's content)
+            for page in response_pages:
+                file_content = page.get("content", "")
+                if file_content:
+                    # Decode the content if it’s base64 encoded (as GitHub API does)
+                    content_decoded = base64.b64decode(
+                        file_content).decode('utf-8')
 
-            # Apply test mode limit if enabled
-            if test_mode:
-                chunks = chunks[:test_chunk_limit]
+                    # Create an instance of GhvChunker (or a suitable subclass like PythonChunker or JavaChunker)
+                    chunker = GhvChunker.create_chunker(file_path)
+                    chunker.set_content(content_decoded, file_path)
+                    chunks = chunker.get_chunks()
 
-            return chunks
+                    # Apply test mode limit if enabled
+                    if test_mode:
+                        chunks = chunks[:test_chunk_limit]
+
+                    return chunks
         else:
-            print(f"Failed to fetch content for {file_path} in {
-                  repo_name}. Status code: {response.status_code}")
+            print(f"Failed to fetch content for {file_path} in {repo_name}.")
             return []
 
     def test_list_and_chunk_files(self):
