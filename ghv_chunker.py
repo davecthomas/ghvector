@@ -86,8 +86,6 @@ class PythonChunker(GhvChunker):
         lines = self.content.splitlines()
         current_chunk = []
         current_size = 0
-        indent_stack = []
-        current_indent = 0
         in_multiline_string = False
         multiline_string_delimiter = None
 
@@ -115,27 +113,18 @@ class PythonChunker(GhvChunker):
             else:
                 token_count = self._estimate_token_count(line)
 
-            # Update indent stack
-            if stripped_line:
-                indent_level = len(line) - len(stripped_line)
-                if indent_level > current_indent:
-                    indent_stack.append(current_indent)
-                elif indent_level < current_indent:
-                    while indent_stack and indent_stack[-1] >= indent_level:
-                        indent_stack.pop()
-                current_indent = indent_level
-
             # Handle decorator lines (e.g., @abstractmethod)
-            if stripped_line.startswith('@') and i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if next_line.startswith('def '):
-                    current_chunk.append(line)
-                    current_size += token_count
-                    i += 1
-                    # Continue processing the function definition line
-                    line = lines[i]
-                    stripped_line = line.strip()
-                    token_count = self._estimate_token_count(line)
+            if stripped_line.startswith('@'):
+                current_chunk.append(line)
+                current_size += token_count
+
+                # Ensure that the next line (function/method declaration) is included in the same chunk
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line.startswith('def '):
+                        current_chunk.append(lines[i + 1])
+                        current_size += self._estimate_token_count(next_line)
+                        i += 1
 
             # Detect block starts (e.g., def, class, if, etc.)
             block_start = False
@@ -156,24 +145,27 @@ class PythonChunker(GhvChunker):
                     current_size = 0
 
             # Add the current line to the chunk
-            if not block_start or stripped_line.startswith(('def ', 'class ')):
+            if not stripped_line.startswith('@'):
                 current_chunk.append(line)
                 current_size += token_count
 
-            # Lookahead to detect the start of the next function or class
-            if stripped_line.startswith(('def ', 'class ')):
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    if next_line.startswith(('def ', 'class ')):
-                        chunk_number = self._add_chunk(
-                            "\n".join(current_chunk))
-                        if chunk_number >= self.MAX_CHUNKS_PER_FILE:
-                            break  # Exit if the maximum number of chunks is reached
-                        current_chunk = []
-                        current_size = 0
+            # Ensure sequential lines are grouped together
+            if not block_start and current_size < self.MAX_CHUNK_SIZE:
+                lookahead = i + 1
+                while lookahead < len(lines):
+                    lookahead_line = lines[lookahead].strip()
+
+                    if lookahead_line.startswith(('def ', 'class ')):
+                        break  # Stop if the next line starts a new function or class
+
+                    current_chunk.append(lines[lookahead])
+                    current_size += self._estimate_token_count(lookahead_line)
+                    lookahead += 1
+
+                i = lookahead - 1  # Adjust i to the last line processed
 
             # Finalize chunk if it exceeds the maximum size
-            if current_size + token_count > self.MAX_CHUNK_SIZE and not indent_stack:
+            if current_size + token_count > self.MAX_CHUNK_SIZE:
                 chunk_number = self._add_chunk("\n".join(current_chunk))
                 if chunk_number >= self.MAX_CHUNKS_PER_FILE:
                     break  # Exit if the maximum number of chunks is reached
