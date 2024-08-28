@@ -4,6 +4,7 @@ from ghv_github import GhvGithub
 from ghv_openai import GhvOpenAI
 from ghv_snowflake import GhvSnowflake
 from ghv_pinecone import GhvPinecone
+from ghv_chunker import GhvChunker
 from dotenv import load_dotenv
 import os
 from typing import Any, List, Dict
@@ -40,8 +41,14 @@ class GhvMain:
             repo_name (str): The name of the repository to process.
         """
         # Step 1: List all files in the repository
-        print(f"Listing files in repository: {repo_name}")
+        print(f"\tListing files in repository: {repo_name}")
         files = self.github_client.list_files_in_repo(repo_name)
+        if not files:
+            print(f"No files found in repository: {repo_name}")
+            return
+        # Remove files that are not supported by the chunker
+        files = [filename for filename in files if os.path.splitext(
+            filename)[1] in GhvChunker.get_supported_file_types()]
 
         # Step 2: Process each file
         for file_info in files:
@@ -75,7 +82,7 @@ class GhvMain:
                     })
 
                 # Store the embeddings in Pinecone
-                print(f"\nStoring embeddings for file: {file_info['path']}")
+                print(f"\n\tStoring embeddings for file: {file_info['path']}")
                 self.pinecone_client.get_and_prep_index()
 
                 # Upsert the function embedding to Pinecone
@@ -83,17 +90,17 @@ class GhvMain:
                     list_dict_upsert)
 
                 # Store the embeddings in Snowflake
-                print(f"Storing embeddings in Snowflake for file: {
+                print(f"\tStoring embeddings in Snowflake for file: {
                       file_info['path']}")
-                for dict_upsert in list_dict_snowflake:
+                for dict_snowflake in list_dict_snowflake:
                     snowflake_embedding: Dict[str, Any] = {
                         "org_name": self.github_client.repo_owner,
                         "repo_name": embedding["repo"],
                         "file_folder": embedding["folder"],
                         "file_name": embedding["path"],
-                        "text": dict_upsert["metadata"]["chunk"],
+                        "text": dict_snowflake["text"],
                         "index_name": self.pinecone_client.index_name,
-                        "embedding_id": dict_upsert["id"]
+                        "embedding_id": dict_snowflake["embedding_id"]
                     }
                     self.snowflake_client.store_single_embedding(
                         snowflake_embedding)

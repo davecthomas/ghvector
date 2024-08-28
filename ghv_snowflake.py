@@ -3,7 +3,6 @@ import time
 from typing import Dict, Optional, List, Any
 import pandas as pd
 import snowflake.connector
-from snowflake.connector.pandas_tools import write_pandas
 from datetime import datetime, timezone
 
 

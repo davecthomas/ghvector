@@ -20,6 +20,10 @@ class GhvChunker(ABC):
         if file_name:
             self.content = self.read_limited_file(file_name)
 
+    @staticmethod
+    def get_supported_file_types():
+        return ['.py', '.java', '.sql']
+
     @abstractmethod
     def chunk_content(self):
         pass
@@ -326,6 +330,49 @@ class JavaChunker(GhvChunker):
             print(f"\n\tMax chunks of {
                   self.MAX_CHUNKS_PER_FILE} per file limit reached.")
         return len(self.chunks)
+
+
+class SQLChunker(GhvChunker):
+    def chunk_content(self) -> List[str]:
+        lines = self.content.splitlines()
+        current_chunk = []
+        current_size = 0
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped_line = line.strip()
+
+            token_count = self._estimate_token_count(line)
+
+            # Detect block starts for SQL keywords like TABLE, PROCEDURE, TRIGGER, VIEW, etc.
+            if re.match(r'^\b(CREATE|ALTER|DROP)\b\s+\b(TABLE|PROCEDURE|TRIGGER|VIEW|FUNCTION)\b', stripped_line, re.IGNORECASE):
+                if current_chunk:
+                    # Finalize the current chunk before starting a new SQL block
+                    chunk_number = self._add_chunk("\n".join(current_chunk))
+                    if chunk_number >= self.MAX_CHUNKS_PER_FILE:
+                        break  # Exit if the maximum number of chunks is reached
+                    current_chunk = []
+                    current_size = 0
+
+            # Add the current line to the chunk
+            current_chunk.append(line)
+            current_size += token_count
+
+            # Finalize chunk if it exceeds the maximum size
+            if current_size > self.MAX_CHUNK_SIZE:
+                chunk_number = self._add_chunk("\n".join(current_chunk))
+                if chunk_number >= self.MAX_CHUNKS_PER_FILE:
+                    break  # Exit if the maximum number of chunks is reached
+                current_chunk = []
+                current_size = 0
+
+            i += 1
+
+        if current_chunk and len(self.chunks) < self.MAX_CHUNKS_PER_FILE:
+            self._add_chunk("\n".join(current_chunk))
+
+        return self.chunks
 
 
 if __name__ == "__main__":
