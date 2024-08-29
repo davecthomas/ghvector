@@ -154,8 +154,7 @@ class GhvPinecone:
                 - 'metadata': Optional metadata associated with the vector.
         """
         if not self.index:
-            print("\tNo index connected. Please connect to an index first.")
-            return 0
+            self.get_and_prep_index()
         # vector_length: int = len(vectors[0].get("values", []))
         num_vectors: int = len(vectors)
         upsert_response: UpsertResponse = self.index.upsert(vectors)
@@ -180,12 +179,12 @@ class GhvPinecone:
             List[Dict[str, Any]]: A list of the top_k most similar vectors.
         """
         if not self.index:
-            print("\tNo index connected. Please connect to an index first.")
-            return []
+            self.get_and_prep_index()
         try:
             # Perform the query
-            result = self.index.query(vector=vector, top_k=top_k)
-            print(f"Query result: {result['matches']}")
+            result = self.index.query(
+                vector=vector, top_k=top_k, includeMetadata=True)
+            # print(f"Query result: {result['matches']}")
             return result['matches']  # Return the list of matches
 
         except UnauthorizedException as e:
@@ -208,8 +207,7 @@ class GhvPinecone:
             vector_id (str): The ID of the vector to delete.
         """
         if not self.index:
-            print("\tNo index connected. Please connect to an index first.")
-            return
+            self.get_and_prep_index()
         self.index.delete(ids=[vector_id])
         print(f"Deleted vector with ID: {
               vector_id} from Pinecone index: {self.index_name}")
@@ -225,8 +223,7 @@ class GhvPinecone:
             Dict[str, Any]: The fetched vector data.
         """
         if not self.index:
-            print("\tNo index connected. Please connect to an index first.")
-            return {}
+            self.get_and_prep_index()
         result = self.index.fetch(ids=[vector_id])  # Fetch the vector by ID
         return result  # Return the fetched vector data
 
@@ -238,8 +235,7 @@ class GhvPinecone:
             Dict[str, Any]: The stats of the Pinecone index.
         """
         if not self.index:
-            print("\tNo index connected. Please connect to an index first.")
-            return {}
+            self.get_and_prep_index()
         return self.index.describe_index_stats()  # Get and return the index stats
 
     def _delete_all_indexes(self):

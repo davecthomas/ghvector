@@ -30,6 +30,8 @@ class GhvOpenAI:
         self.embedding_model = model  # Use the model passed to the constructor
         self.dimensions = dimensions  # Use the dimensions passed to the constructor
         self.user = os.getenv("OPENAI_USER", "default_user")
+        self.completions_model = os.getenv(
+            "OPENAI_COMPLETIONS_MODEL", "gpt-4o-mini")
         self.client = OpenAI(api_key=self.api_key)
 
     def count_tokens(self, text: str) -> int:
@@ -102,6 +104,34 @@ class GhvOpenAI:
             embeddings_list.append(embedding_data)
 
         return embeddings_list
+
+    def sendPrompt(self, prompt: str) -> str:
+        """
+        Sends a prompt to the latest version of the OpenAI API for chat and returns the completion result.
+
+        Args:
+            prompt (str): The prompt string to send.
+
+        Returns:
+            str: The completion result as a string.
+        """
+        try:
+            response = self.client.chat.create(
+                model=self.completions_model,
+                messages=[
+                    {"role": "system",
+                        "content": "You are a helpful software coding assistant."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            # Extract the response from the completion
+            completion = response['choices'][0]['message']['content']
+            return completion
+
+        except Exception as e:
+            print(f"An error occurred while sending the prompt: {e}")
+            raise
 
     def test_github_openai_integration(self, github_client, file_info: Dict[str, str]):
         """
