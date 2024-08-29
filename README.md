@@ -130,40 +130,67 @@ This should help you break Python code files into logical parts effectively!
 
 # Program Flow
 
-## Generating Embeddings
+## Sequence Diagram: building the RAG databases from file content
 
 ```mermaid
-graph TD
-    A[GitHub Repository] -->|1. Fetch Files| B[GhsGithub Class]
-    B -->|2. List Files| C{Filter Files}
-    C -->|3. Apply GIT_INCLUDE<br>and GITHUB_EXCLUDE_SUBDIRS| D[Filtered Files]
-    D -->|4. Chunk Files| E[File Chunks]
-    E -->|5. Process Chunks<br>GhvOpenAI Class| F[Generate Embeddings]
-    F -->|6. Embedding Vectors| G{Store Data}
-    G -->|7. Pinecone<br>GhvPinecone Class| H[Pinecone Vector DB]
-    G -->|8. Snowflake<br>GhvSnowflake| I[Snowflake DB]
+sequenceDiagram
+    participant User
+    participant GhvMain
+    participant GhvGithub
+    participant GhvChunker
+    participant GhvOpenAI
+    participant GhvPinecone
+    participant GhvSnowflake
 
-    %% Subflow explanations
-    B --> J{Test Mode?}
-    J -->|Yes| K[Limit Chunks to Test Limit]
-    J -->|No| L[Process All Chunks]
-    K --> F
-    L --> F
+    User->>GhvMain: Start Processing Repos
+    GhvMain->>GhvGithub: list_files_in_repo()
+    GhvGithub-->>GhvMain: Files List
 
-    G --> M[Add Metadata]
+    loop For each file
+        GhvMain->>GhvChunker: create_chunker(file_name)
+        GhvChunker-->>GhvMain: Chunker Instance
 
+        GhvMain->>GhvChunker: chunk_content()
+        GhvChunker-->>GhvMain: Chunks
+
+        GhvMain->>GhvOpenAI: generate_embeddings(chunks)
+        GhvOpenAI-->>GhvMain: Embeddings
+
+        GhvMain->>GhvPinecone: upsert_vectors(embeddings)
+        GhvPinecone-->>GhvMain: Embeddings Stored
+
+        GhvMain->>GhvSnowflake: store_embedding_metadata(embeddings)
+        GhvSnowflake-->>GhvMain: Metadata Stored
+    end
+
+    GhvMain-->>User: Vector Database Updated
 ```
 
-## Retrieving Embeddings and Augmenting a Generated Prompt
+## Sequence Diagram: Prompt Generation
 
 ```mermaid
-graph TD
-    A[User Prompt] -->|1. Query Pinecone| B[Pinecone Similarity Search]
-    B -->|2. Found Vectors?| C{Vectors Found?}
-    C -->|Yes| D[Query Snowflake for File Chunks]
-    C -->|No| E[Handle No Results]
-    D -->|3. Retrieve File Chunks| F[Augment Prompt with Chunks]
-    F -->|4. Send to OpenAI| G[OpenAI Completion API]
+sequenceDiagram
+    participant User
+    participant GhvRAG
+    participant GhvOpenAI
+    participant GhvPinecone
+    participant GhvSnowflake
+    participant OpenAI
+
+    User->>GhvRAG: Enter Prompt
+    GhvRAG->>GhvOpenAI: generate_embeddings(prompt)
+    GhvOpenAI-->>GhvRAG: Embedding
+
+    GhvRAG->>GhvPinecone: query_vector(embedding)
+    GhvPinecone-->>GhvRAG: Top 3 IDs + Metadata
+
+    GhvRAG->>GhvSnowflake: read_embedding_by_id(Top 3 IDs)
+    GhvSnowflake-->>GhvRAG: File Chunks (Text)
+
+    GhvRAG->>GhvOpenAI: augment_prompt(prompt + Text)
+    GhvRAG->>OpenAI: sendPrompt(augmented_prompt)
+    OpenAI-->>GhvRAG: Completion
+    GhvRAG-->>User: Augmented Completion
 ```
 
 ## Embedding models
