@@ -5,17 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GhvRAG Interface</title>
     <style>
+        /* General Styling */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f5f5f5;
             color: #333;
             margin: 0;
             padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
         }
 
         .container {
             display: flex;
-            height: 100vh;
+            flex-grow: 1;
             overflow: hidden;
         }
 
@@ -40,6 +44,7 @@
             border-radius: 5px;
             background-color: #333;
             transition: background-color 0.3s;
+            position: relative; /* To correctly position the three-dot button */
         }
 
         .history-item:hover {
@@ -50,15 +55,48 @@
             position: absolute;
             top: 10px;
             right: 10px;
-            background: transparent;
+            background-color: #2c2c2c;
             border: none;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px;
+            border-radius: 50%;
+            transition: background-color 0.3s;
             color: #ccc;
-            font-size: 18px;
+        }
+
+        .three-dot-button svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
         }
 
         .three-dot-button:hover {
+            background-color: #007bff;
             color: #fff;
+        }
+
+        .three-dot-button::after {
+            content: "Options";
+            position: absolute;
+            bottom: 30px;
+            background-color: #000;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            transform: translateX(-50%);
+            left: 50%;
+        }
+
+        .three-dot-button:hover::after {
+            opacity: 1; /* Show the tooltip on hover */
         }
 
         .dropdown-menu {
@@ -92,11 +130,37 @@
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
+            justify-content: flex-end;
         }
 
-        .main-content h1 {
-            margin-top: 0;
-            color: #333;
+        .chat-history {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .chat-bubble {
+            max-width: 70%;
+            padding: 10px 15px;
+            border-radius: 20px;
+            margin-bottom: 10px;
+            word-wrap: break-word;
+        }
+
+        .user-bubble {
+            background-color: #c6daf0;
+            color: #2e2e2e;
+            align-self: flex-end;
+        }
+
+        .bot-bubble {
+            background-color: #f1f1f1;
+            color: #333333;
+            align-self: flex-start;
         }
 
         .input-container {
@@ -121,7 +185,8 @@
             border: none;
             border-radius: 50%;
             cursor: pointer;
-            padding: 10px;
+            width: 40px;
+            height: 40px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -133,29 +198,20 @@
         }
 
         .send-button:hover {
-            background-color: #0056b3;
+            background-color: #007bff;
         }
 
         .send-button svg {
-            width: 24px;
-            height: 24px;
+            width: 40px;
+            height: 40px;
             fill: #fff;
-        }
-
-        .output {
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            margin-top: 20px;
-            white-space: pre-wrap;
-            overflow-y: auto;
-            flex-grow: 1;
+            margin-left: -7px; /* Adjust left margin */
+            margin-top: -7px;  /* Adjust top margin */
         }
 
         /* Spinner CSS */
         .spinner {
-            display: none; /* Hidden by default */
+            display: none;
             width: 50px;
             height: 50px;
             border: 5px solid #ccc;
@@ -173,47 +229,113 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        /* Style for rename input */
+        .rename-input {
+            display: none;
+            background: transparent;
+            border: none;
+            color: #fff;
+            width: calc(100% - 20px);
+            font-size: 16px;
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 5px;
+            outline: none;
+        }
+
+        .history-item-name {
+            display: inline-block;
+            width: calc(100% - 20px);
+        }
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function() {
-            const form = document.querySelector("form");
             const textarea = document.querySelector("textarea");
             const spinner = document.querySelector(".spinner");
             const sendButton = document.querySelector(".send-button");
+            const chatHistory = document.querySelector(".chat-history");
             const historyItems = document.querySelectorAll(".history-item");
-            const output = document.querySelector(".output");
-    
+
             function showSpinner() {
                 spinner.style.display = "block";
+                console.log("Spinner shown");  // Debugging line
             }
-    
-            form.addEventListener("submit", function(event) {
-                showSpinner();
+
+            function hideSpinner() {
+                spinner.style.display = "none";
+                console.log("Spinner hidden");  // Debugging line
+            }
+
+            function addChatBubble(text, isUser = true) {
+                const bubble = document.createElement("div");
+                bubble.classList.add("chat-bubble");
+                bubble.classList.add(isUser ? "user-bubble" : "bot-bubble");
+                bubble.textContent = text;
+                chatHistory.appendChild(bubble);
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+            }
+
+            // Handle the button click event
+            sendButton.addEventListener("click", function () {
+                const userText = textarea.value.trim();
+                if (userText !== "") {
+                    console.log("User input:", userText);  // Debugging line
+                    addChatBubble(userText, true); // Add user's input to chat
+                    showSpinner(); // Show spinner while processing
+                    textarea.value = ""; // Clear textarea
+
+                    // Submit the form via an AJAX request to prevent page reload
+                    fetch("/", {
+                        method: "POST",
+                        body: JSON.stringify(userText),
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data && data.current_result) {
+                            addChatBubble(data.current_result, false); // Add OpenAI response to chat
+                        } else {
+                            console.error("No response received from server.");
+                        }
+                        hideSpinner(); // Hide spinner after receiving the response
+                    })
+                    .catch(error => {
+                        console.error("Error:", error);
+                        hideSpinner(); // Hide spinner if an error occurs
+                    });
+                }
             });
-    
-            sendButton.addEventListener("click", function() {
-                showSpinner();
-                form.submit();
-            });
-    
+
             textarea.addEventListener("keypress", function(event) {
                 if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    showSpinner();  // Show the spinner when Enter is pressed
-                    form.submit();
+                    sendButton.click(); // Trigger the send button click
                 }
             });
-    
+
+
+            textarea.addEventListener("keypress", function(event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    sendButton.click(); // Trigger button click on Enter
+                }
+            });
+
             // Event listener for history item click
             historyItems.forEach((item, index) => {
                 const threeDotButton = item.querySelector('.three-dot-button');
                 const dropdownMenu = item.querySelector('.dropdown-menu');
-    
+                const renameInput = item.querySelector('.rename-input');
+                const historyItemName = item.querySelector('.history-item-name');
+
                 threeDotButton.addEventListener("click", function(event) {
                     event.stopPropagation();  // Prevent triggering the history item click
                     dropdownMenu.style.display = dropdownMenu.style.display === 'block' ? 'none' : 'block';
                 });
-    
+
                 // Handle delete action
                 dropdownMenu.querySelector('.delete').addEventListener("click", function(event) {
                     event.stopPropagation();  // Prevent triggering the history item click
@@ -230,14 +352,74 @@
                         }
                     });
                 });
-    
+
+                // Handle rename action
+                dropdownMenu.querySelector('.rename').addEventListener("click", function(event) {
+                    event.stopPropagation();
+                    historyItemName.style.display = "none";
+                    renameInput.style.display = "inline-block";
+                    renameInput.focus();
+                    dropdownMenu.style.display = 'none';
+                });
+
+                renameInput.addEventListener("keypress", function(event) {
+                    if (event.key === "Enter") {
+                        const newName = renameInput.value.trim();
+                        if (newName) {
+                            historyItemName.textContent = newName;
+                            renameInput.style.display = 'none';
+                            historyItemName.style.display = 'block';
+
+                            // Make an API call to update the name in the history file
+                            fetch(`/rename-history/${index}`, {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json"
+                                },
+                                body: JSON.stringify({ new_name: newName })
+                            }).then(response => {
+                                if (response.ok) {
+                                    console.log("History item renamed successfully.");
+                                } else {
+                                    console.error("Failed to rename history item.");
+                                }
+                            });
+                        }
+                    }
+                });
+
+                renameInput.addEventListener("blur", function(event) {
+                    const newName = renameInput.value.trim();
+                    if (newName) {
+                        historyItemName.textContent = newName;
+
+                        // Make an API call to rename the entry in the history file
+                        fetch(`/rename-history/${index}`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify({ new_name: newName })
+                        }).then(response => {
+                            if (response.ok) {
+                                console.log("History item renamed successfully.");
+                            } else {
+                                console.error("Failed to rename history item.");
+                            }
+                        });
+                    }
+                    renameInput.style.display = "none";
+                    historyItemName.style.display = 'block';
+                });
+
                 item.addEventListener("click", function() {
                     const historyData = JSON.parse(item.dataset.history);
                     textarea.value = historyData.prompt;
-                    output.innerText = historyData.result;
+                    addChatBubble(historyData.prompt, true);
+                    addChatBubble(historyData.result, false);
                 });
             });
-    
+
             // Hide dropdown when clicking outside
             document.addEventListener('click', function(event) {
                 const isClickInside = event.target.closest('.history-item');
@@ -248,41 +430,40 @@
                 }
             });
         });
-    </script>
-    
+    </script>                
+
 </head>
 <body>
     <div class="container">
         <div class="sidebar">
-            <h3>History</h3>
+            <h3>Chat History</h3>
             {% for item in history %}
-                <div class="history-item" data-history='{{ item|tojson }}'>
-                    {{ item.prompt }}
-                    <button class="three-dot-button">⋮</button>
-                    <div class="dropdown-menu">
-                        <button class="delete">Delete</button>
-                    </div>
+            <div class="history-item" data-history='{{ item|tojson }}'>
+                <span class="history-item-name">{{ item.name }}</span>
+                <input type="text" class="rename-input" value="{{ item.name }}" />
+                <button class="three-dot-button">
+                    <svg viewBox="0 0 24 24">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M3 12C3 10.8954 3.89543 10 5 10C6.10457 10 7 10.8954 7 12C7 13.1046 6.10457 14 5 14C3.89543 14 3 13.1046 3 12ZM10 12C10 10.8954 10.8954 10 12 10C13.1046 10 14 10.8954 14 12C14 13.1046 13.1046 14 12 14C10.8954 14 10 13.1046 10 12ZM17 12C17 10.8954 17.8954 10 19 10C20.1046 10 21 10.8954 21 12C21 13.1046 20.1046 14 19 14C17.8954 14 17 13.1046 17 12Z" fill="currentColor"></path>
+                    </svg>
+                </button>
+                <div class="dropdown-menu">
+                    <button class="rename">Rename</button>
+                    <button class="delete">Delete</button>
                 </div>
+            </div>
             {% endfor %}
         </div>
         <div class="main-content">
-            <h1>RAG Prompt</h1>
-            <form method="post">
-                <div class="input-container">
-                    <textarea name="user_prompt" rows="4"></textarea>
-                    <button type="button" class="send-button">
-                        <svg viewBox="0 0 24 24">
-                            <path fill-rule="evenodd" clip-rule="evenodd" d="M15.1918 8.90615C15.6381 8.45983 16.3618 8.45983 16.8081 8.90615L21.9509 14.049C22.3972 14.4953 22.3972 15.2189 21.9509 15.6652C21.5046 16.1116 20.781 16.1116 20.3347 15.6652L17.1428 12.4734V22.2857C17.1428 22.9169 16.6311 23.4286 15.9999 23.4286C15.3688 23.4286 14.8571 22.9169 14.8571 22.2857V12.4734L11.6652 15.6652C11.2189 16.1116 10.4953 16.1116 10.049 15.6652C9.60265 15.2189 9.60265 14.4953 10.049 14.049L15.1918 8.90615Z" fill="currentColor"></path>
-                        </svg>
-                    </button>
-                </div>
-            </form>
-            <div class="spinner"></div> <!-- Spinner will be shown here -->
-            <div class="output">
-                {% if current_result %}
-                    {{ current_result }}
-                {% endif %}
+            <div class="chat-history"></div> <!-- Chat history will be displayed here -->
+            <div class="input-container">
+                <textarea name="user_prompt" rows="4"></textarea>
+                <button class="send-button">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M15.1918 8.90615C15.6381 8.45983 16.3618 8.45983 16.8081 8.90615L21.9509 14.049C22.3972 14.4953 22.3972 15.2189 21.9509 15.6652C21.5046 16.1116 20.781 16.1116 20.3347 15.6652L17.1428 12.4734V22.2857C17.1428 22.9169 16.6311 23.4286 15.9999 23.4286C15.3688 23.4286 14.8571 22.9169 14.8571 22.2857V12.4734L11.6652 15.6652C11.2189 16.1116 10.4953 16.1116 10.049 15.6652C9.60265 15.2189 9.60265 14.4953 10.049 14.049L15.1918 8.90615Z" fill="currentColor"></path>
+                    </svg>
+                </button>
             </div>
+            <div class="spinner"></div> <!-- Spinner will be shown here -->
         </div>
     </div>
 </body>

@@ -3,8 +3,8 @@ from ghv_openai import GhvOpenAI
 from ghv_pinecone import GhvPinecone
 from ghv_prompt_history import GhvPromptHistory
 from ghv_snowflake import GhvSnowflake
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import Body, FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from typing import List
 import uvicorn
@@ -78,16 +78,44 @@ def testWeb():
         return templates.TemplateResponse("index.html", {"request": request, "history": prompt_history.get_history(), "current_result": None})
 
     @app.post("/", response_class=HTMLResponse)
-    async def handle_prompt(request: Request, user_prompt: str = Form(...)):
+    async def handle_prompt(request: Request, user_prompt: str = Body(...)):
         # Augment the prompt using GhvRAG
-        augmented_texts = rag.augment_prompt(user_prompt)
-        augmented_prompt = f"{user_prompt}\n Use this code for context:\n 1. {
-            augmented_texts[0]}\n 2. {augmented_texts[1]}\n 3. {augmented_texts[2]}"
-        openai_response = openai_client.sendPrompt(augmented_prompt)
-        # Add the entry to the prompt history
-        prompt_history.add_entry(user_prompt, openai_response)
+        print(f"prompt: {user_prompt}")
+        try:
+            # Extract the prompt
+            print(f"Received prompt: {user_prompt}")
 
-        return templates.TemplateResponse("index.html", {"request": request, "history": prompt_history.get_history(), "current_result": openai_response})
+            # Proceed with augmenting the prompt
+            augmented_texts = rag.augment_prompt(user_prompt)
+            augmented_prompt = (
+                f"{user_prompt}\n Use this code for context:\n 1. {
+                    augmented_texts[0]}\n 2. {augmented_texts[1]}\n 3. {augmented_texts[2]}"
+            )
+            openai_response = openai_client.sendPrompt(augmented_prompt)
+            prompt_history.add_entry(user_prompt, openai_response)
+            print(f"Response: {openai_response}")
+
+            # Return JSON response instead of HTML for better debugging
+            return JSONResponse(content={"current_result": openai_response})
+
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail="An error occurred during processing")
+        # augmented_texts = rag.augment_prompt(user_prompt)
+        # augmented_prompt = f"{user_prompt}\n Use this code for context:\n 1. {
+        #     augmented_texts[0]}\n 2. {augmented_texts[1]}\n 3. {augmented_texts[2]}"
+        # openai_response = openai_client.sendPrompt(augmented_prompt)
+        # # Add the entry to the prompt history
+        # prompt_history.add_entry(user_prompt, openai_response)
+        # print(f"response: {openai_response}")
+
+        # # Return the updated HTML with the new conversation added
+        # return templates.TemplateResponse("index.html", {
+        #     "request": request,
+        #     "history": prompt_history.get_history(),
+        #     "current_result": openai_response
+        # })
 
     @app.delete("/delete-history/{index}")
     async def delete_history(index: int):
@@ -97,6 +125,15 @@ def testWeb():
         except IndexError:
             raise HTTPException(
                 status_code=404, detail="History item not found")
+
+    @app.post("/rename-history/{index}")
+    async def rename_history_entry(index: int, request: Request):
+        data = await request.json()
+        new_name = data.get("new_name", "").strip()
+        if new_name:
+            prompt_history.rename_entry(index, new_name)
+            return {"status": "success"}
+        return {"status": "error", "message": "Invalid name"}
 
     # Run the app using Uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -134,10 +171,10 @@ def testRAG():
 
 # Main function to toggle between modes
 if __name__ == "__main__":
-    mode = input(
-        "Enter 'web' for web mode or 'cli' for command-line mode: ").strip().lower()
+    # mode = input(
+    #     "Enter 'web' for web mode or 'cli' for command-line mode: ").strip().lower()
 
-    if mode == 'web':
-        testWeb()
-    else:
-        testRAG()
+    # if mode == 'web':
+    testWeb()
+    # else:
+    #     testRAG()

@@ -19,9 +19,16 @@ class GhvPromptHistory:
         with open(self.file_path, "w") as file:
             json.dump(self.history, file, indent=4)
 
-    def add_entry(self, prompt: str, result: str):
-        """Add a new entry to the history and save it."""
-        self.history.append({"prompt": prompt, "result": result})
+    def add_entry(self, prompt: str, result: str, name: str = None):
+        if not name:
+            # If name is not provided, use the first 40 characters of the prompt
+            name = prompt[:40]
+        entry = {
+            "name": name,
+            "prompt": prompt,
+            "result": result
+        }
+        self.history.append(entry)
         self.save_history()
 
     def get_history(self):
@@ -31,4 +38,9 @@ class GhvPromptHistory:
     def delete_entry(self, index):
         if 0 <= index < len(self.history):
             del self.history[index]
+            self.save_history()
+
+    def rename_entry(self, index, new_name):
+        if 0 <= index < len(self.history):
+            self.history[index]['name'] = new_name
             self.save_history()
