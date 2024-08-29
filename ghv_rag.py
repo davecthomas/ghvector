@@ -80,11 +80,7 @@ def testWeb():
     @app.post("/", response_class=HTMLResponse)
     async def handle_prompt(request: Request, user_prompt: str = Body(...)):
         # Augment the prompt using GhvRAG
-        print(f"prompt: {user_prompt}")
         try:
-            # Extract the prompt
-            print(f"Received prompt: {user_prompt}")
-
             # Proceed with augmenting the prompt
             augmented_texts = rag.augment_prompt(user_prompt)
             augmented_prompt = (
@@ -93,7 +89,7 @@ def testWeb():
             )
             openai_response = openai_client.sendPrompt(augmented_prompt)
             prompt_history.add_entry(user_prompt, openai_response)
-            print(f"Response: {openai_response}")
+            # print(f"Response: {openai_response}")
 
             # Return JSON response instead of HTML for better debugging
             return JSONResponse(content={"current_result": openai_response})

@@ -168,6 +168,24 @@
             color: #333333;
             align-self: flex-start;
         }
+        .bot-bubble p {
+            margin: 0;
+            line-height: 1.5;
+        }
+
+        .bot-bubble code {
+            background-color: #f5f5f5;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: "Courier New", Courier, monospace;
+        }
+
+        .bot-bubble pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }        
 
         .input-container {
             position: relative;
@@ -277,7 +295,12 @@
                 const bubble = document.createElement("div");
                 bubble.classList.add("chat-bubble");
                 bubble.classList.add(isUser ? "user-bubble" : "bot-bubble");
-                bubble.innerText = text;
+                if (!isUser) {
+                    // Convert Markdown to HTML for bot responses
+                    bubble.innerHTML = marked.parse(text);
+                } else {
+                    bubble.textContent = text; // For user input, just display plain text
+                }
                 chatHistory.appendChild(bubble);
                 chatHistory.scrollTop = chatHistory.scrollHeight;
             }
@@ -437,7 +460,7 @@
             });
         });
     </script>                
-
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="container">
