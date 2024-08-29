@@ -149,6 +149,7 @@
             border-radius: 20px;
             margin-bottom: 10px;
             word-wrap: break-word;
+            white-space: pre-wrap; /* This will preserve whitespace and handle line breaks */
         }
 
         .user-bubble {
@@ -271,7 +272,7 @@
                 const bubble = document.createElement("div");
                 bubble.classList.add("chat-bubble");
                 bubble.classList.add(isUser ? "user-bubble" : "bot-bubble");
-                bubble.textContent = text;
+                bubble.innerText = text;
                 chatHistory.appendChild(bubble);
                 chatHistory.scrollTop = chatHistory.scrollHeight;
             }
