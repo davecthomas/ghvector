@@ -116,7 +116,7 @@ class GhvOpenAI:
             str: The completion result as a string.
         """
         try:
-            response = self.client.chat.create(
+            response = self.client.chat.completions.create(
                 model=self.completions_model,
                 messages=[
                     {"role": "system",
@@ -126,7 +126,17 @@ class GhvOpenAI:
             )
 
             # Extract the response from the completion
-            completion = response['choices'][0]['message']['content']
+            completion = response.choices[0].message.content
+
+            # If the content seems truncated, send a follow-up request or handle continuation
+            while response.choices[0].finish_reason == 'length':
+                response = self.client.chat.completions.create(
+                    model=self.completions_model,
+                    messages=[
+                        {"role": "system", "content": "Continue."},
+                    ]
+                )
+                completion += response.choices[0].message.content
             return completion
 
         except Exception as e:

@@ -56,7 +56,7 @@ def testRAG():
     rag = GhvRAG(openai_client=openai_client,
                  pinecone_client=pinecone_client, snowflake_client=snowflake_client)
 
-    # Prompt the user for input. E.g. write me a python file chunker that breaks up .py files into chunks
+    # Prompt the user for input. E.g. write me a python file chunker that opens a python file and breaks up .py code files into logical chunks and returns a list of chunks
     user_prompt = input("Enter your prompt: ")
 
     # Augment the prompt
