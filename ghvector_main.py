@@ -116,6 +116,7 @@ class GhvMain:
 
 
 if __name__ == "__main__":
+    # This does all the heavy lifting getting files chunked, vectorized, stored in Pinecone, and stored in Snowflake
     main_processor = GhvMain()
 
     # For each repo, chunk every file and generate embeddings, then store them

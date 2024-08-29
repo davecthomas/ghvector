@@ -379,6 +379,7 @@ def test_embedding_search(ghv_pc: GhvPinecone, dict_test: Dict, ghv_openai: GhvO
 
 
 if __name__ == "__main__":
+    # Test with dummy code snippets and prompts
     # Initialize an empty DataFrame to hold all results
     all_results_df = pd.DataFrame()
 

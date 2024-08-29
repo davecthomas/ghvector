@@ -326,5 +326,6 @@ class GhvGithub:
 
 
 if __name__ == "__main__":
+    # Test chunking files from the first repository
     github_client = GhvGithub()
     github_client.test_list_and_chunk_files()

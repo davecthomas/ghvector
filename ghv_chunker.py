@@ -386,7 +386,7 @@ class SQLChunker(GhvChunker):
 
 
 if __name__ == "__main__":
-    # Collect chunks for all Python files in the current directory
+    # Local test mode: Collect chunks for all Python files in the current directory
     data = []
     for file_name in os.listdir("."):
         if file_name.endswith(".py"):
