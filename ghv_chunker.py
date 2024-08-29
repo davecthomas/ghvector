@@ -17,11 +17,8 @@ class GhvChunker(ABC):
         self.content = ""
         self.chunks = []
 
-        if file_name:
-            self.content = self.read_limited_file(file_name)
-
     @staticmethod
-    def get_supported_file_types():
+    def get_supported_file_types() -> List[str]:
         return ['.py', '.java', '.sql']
 
     @abstractmethod
@@ -64,7 +61,11 @@ class GhvChunker(ABC):
         return len(re.findall(r'\w+', line))
 
     def read_limited_file(self, file_name):
-        """Reads a file up to the maximum estimated character limit."""
+        """
+        Test only use. 
+        Reads a file up to the maximum estimated character limit.
+        This is for local file reads only and is not for Github API content retrieval.
+        """
         max_characters_to_read = self.AVERAGE_WORD_LENGTH * \
             self.MAX_CHUNKS_PER_FILE * self.MAX_CHUNK_SIZE
         with open(file_name, 'r') as file:
@@ -81,6 +82,8 @@ class GhvChunker(ABC):
             return PythonChunker(file_name)
         elif file_extension == '.java':
             return JavaChunker(file_name)
+        elif file_extension == '.sql':
+            return SQLChunker(file_name)
         else:
             raise ValueError(f"Unsupported file type: {file_extension}")
 
@@ -92,6 +95,7 @@ class PythonChunker(GhvChunker):
         current_size = 0
         in_multiline_string = False
         multiline_string_delimiter = None
+        last_line_was_class = False
 
         i = 0
         while i < len(lines):
@@ -154,6 +158,12 @@ class PythonChunker(GhvChunker):
             block_start = False
             if stripped_line.startswith(('def ', 'class ', 'if ', 'for ', 'while ', 'try ', 'except ', 'with ', 'elif ', 'else:')):
                 block_start = True
+                if stripped_line.startswith('class '):
+                    last_line_was_class = True
+                elif stripped_line.startswith('def ') and last_line_was_class:
+                    last_line_was_class = False  # Don't start a new chunk if 'def' follows 'class'
+                else:
+                    last_line_was_class = False  # Reset if this is a regular block start
                 if stripped_line.startswith(('if ', 'else', 'for ', 'while ')) and current_chunk:
                     current_chunk.append(line)
                     current_size += token_count

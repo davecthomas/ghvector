@@ -41,17 +41,17 @@ class GhvMain:
             repo_name (str): The name of the repository to process.
         """
         # Step 1: List all files in the repository
-        print(f"\tListing files in repository: {repo_name}")
-        files = self.github_client.list_files_in_repo(repo_name)
-        if not files:
+        print(f"Listing files in repository: {repo_name}")
+        files_list_dict = self.github_client.list_files_in_repo(repo_name)
+        if not files_list_dict:
             print(f"No files found in repository: {repo_name}")
             return
         # Remove files that are not supported by the chunker
-        files = [filename for filename in files if os.path.splitext(
-            filename)[1] in GhvChunker.get_supported_file_types()]
+        files_list_dict = [file_dict for file_dict in files_list_dict if os.path.splitext(
+            file_dict.get("path", ".xyz"))[1] in GhvChunker.get_supported_file_types()]
 
         # Step 2: Process each file
-        for file_info in files:
+        for file_info in files_list_dict:
             print(f"\tFetching chunks from file: {file_info['path']}")
             file_chunks: List[str] = None
             file_chunks = self.github_client.get_file_chunks(file_info)
