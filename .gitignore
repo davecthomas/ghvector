@@ -5,6 +5,9 @@ __pycache__/
 # ignore output files
 *.csv
 
+# ignore prompt history
+history.json
+
 # Ignore the virtual environment
 venv/
 

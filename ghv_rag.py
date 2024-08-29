@@ -1,7 +1,16 @@
 from typing import List
 from ghv_openai import GhvOpenAI
 from ghv_pinecone import GhvPinecone
+from ghv_prompt_history import GhvPromptHistory
 from ghv_snowflake import GhvSnowflake
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from typing import List
+import uvicorn
+import threading
+
+# Assuming GhvRAG and other related classes are already defined/imported
 
 
 class GhvRAG:
@@ -45,6 +54,53 @@ class GhvRAG:
 
         return retrieved_texts
 
+# Define the testWeb function
+
+
+def testWeb():
+    app = FastAPI()
+
+    # Set up Jinja2 for HTML templating
+    templates = Jinja2Templates(directory="templates")
+
+    # Initialize the GhvPromptHistory class
+    prompt_history = GhvPromptHistory()
+
+    # Initialize necessary clients and GhvRAG instance
+    openai_client = GhvOpenAI()
+    pinecone_client = GhvPinecone()
+    snowflake_client = GhvSnowflake()
+    rag = GhvRAG(openai_client=openai_client,
+                 pinecone_client=pinecone_client, snowflake_client=snowflake_client)
+
+    @app.get("/", response_class=HTMLResponse)
+    async def read_form(request: Request):
+        return templates.TemplateResponse("index.html", {"request": request, "history": prompt_history.get_history(), "current_result": None})
+
+    @app.post("/", response_class=HTMLResponse)
+    async def handle_prompt(request: Request, user_prompt: str = Form(...)):
+        # Augment the prompt using GhvRAG
+        augmented_texts = rag.augment_prompt(user_prompt)
+        augmented_prompt = f"{user_prompt}\n Use this code for context:\n 1. {
+            augmented_texts[0]}\n 2. {augmented_texts[1]}\n 3. {augmented_texts[2]}"
+        openai_response = openai_client.sendPrompt(augmented_prompt)
+        # Add the entry to the prompt history
+        prompt_history.add_entry(user_prompt, openai_response)
+
+        return templates.TemplateResponse("index.html", {"request": request, "history": prompt_history.get_history(), "current_result": openai_response})
+
+    @app.delete("/delete-history/{index}")
+    async def delete_history(index: int):
+        try:
+            prompt_history.delete_entry(index)
+            return {"message": "History item deleted successfully."}
+        except IndexError:
+            raise HTTPException(
+                status_code=404, detail="History item not found")
+
+    # Run the app using Uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
 def testRAG():
     # Instantiate the necessary clients
@@ -76,5 +132,12 @@ def testRAG():
     print(openai_response)
 
 
+# Main function to toggle between modes
 if __name__ == "__main__":
-    testRAG()
+    mode = input(
+        "Enter 'web' for web mode or 'cli' for command-line mode: ").strip().lower()
+
+    if mode == 'web':
+        testWeb()
+    else:
+        testRAG()

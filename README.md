@@ -130,7 +130,7 @@ This should help you break Python code files into logical parts effectively!
 
 # Program Flow
 
-## Sequence Diagram: building the RAG databases from file content
+## Sequence Diagram: building the RAG databases from chunked GitHub repo file content
 
 ```mermaid
 sequenceDiagram

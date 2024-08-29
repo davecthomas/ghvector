@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GhvRAG Interface</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 25%;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        .sidebar h3 {
+            margin-top: 0;
+            color: #ffffff;
+        }
+
+        .history-item {
+            margin-bottom: 15px;
+            cursor: pointer;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #333;
+            transition: background-color 0.3s;
+        }
+
+        .history-item:hover {
+            background-color: #555;
+        }
+
+        .three-dot-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            color: #ccc;
+            font-size: 18px;
+        }
+
+        .three-dot-button:hover {
+            color: #fff;
+        }
+
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 30px;
+            right: 10px;
+            background-color: #333;
+            padding: 5px 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .dropdown-menu button {
+            background: none;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            padding: 5px 0;
+            text-align: left;
+            width: 100%;
+        }
+
+        .dropdown-menu button:hover {
+            background-color: #444;
+        }
+
+        .main-content {
+            width: 75%;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .main-content h1 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        .input-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            resize: none;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+
+        .send-button {
+            background-color: #edf0f4;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            transition: background-color 0.3s;
+        }
+
+        .send-button:hover {
+            background-color: #0056b3;
+        }
+
+        .send-button svg {
+            width: 24px;
+            height: 24px;
+            fill: #fff;
+        }
+
+        .output {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+            white-space: pre-wrap;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        /* Spinner CSS */
+        .spinner {
+            display: none; /* Hidden by default */
+            width: 50px;
+            height: 50px;
+            border: 5px solid #ccc;
+            border-top: 5px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: auto;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const form = document.querySelector("form");
+            const textarea = document.querySelector("textarea");
+            const spinner = document.querySelector(".spinner");
+            const sendButton = document.querySelector(".send-button");
+            const historyItems = document.querySelectorAll(".history-item");
+            const output = document.querySelector(".output");
+    
+            function showSpinner() {
+                spinner.style.display = "block";
+            }
+    
+            form.addEventListener("submit", function(event) {
+                showSpinner();
+            });
+    
+            sendButton.addEventListener("click", function() {
+                showSpinner();
+                form.submit();
+            });
+    
+            textarea.addEventListener("keypress", function(event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    showSpinner();  // Show the spinner when Enter is pressed
+                    form.submit();
+                }
+            });
+    
+            // Event listener for history item click
+            historyItems.forEach((item, index) => {
+                const threeDotButton = item.querySelector('.three-dot-button');
+                const dropdownMenu = item.querySelector('.dropdown-menu');
+    
+                threeDotButton.addEventListener("click", function(event) {
+                    event.stopPropagation();  // Prevent triggering the history item click
+                    dropdownMenu.style.display = dropdownMenu.style.display === 'block' ? 'none' : 'block';
+                });
+    
+                // Handle delete action
+                dropdownMenu.querySelector('.delete').addEventListener("click", function(event) {
+                    event.stopPropagation();  // Prevent triggering the history item click
+                    item.remove();  // Remove the item from the DOM
+                    
+                    // Make an API call to delete the entry from the history file
+                    fetch(`/delete-history/${index}`, {
+                        method: "DELETE",
+                    }).then(response => {
+                        if (response.ok) {
+                            console.log("History item deleted successfully.");
+                        } else {
+                            console.error("Failed to delete history item.");
+                        }
+                    });
+                });
+    
+                item.addEventListener("click", function() {
+                    const historyData = JSON.parse(item.dataset.history);
+                    textarea.value = historyData.prompt;
+                    output.innerText = historyData.result;
+                });
+            });
+    
+            // Hide dropdown when clicking outside
+            document.addEventListener('click', function(event) {
+                const isClickInside = event.target.closest('.history-item');
+                if (!isClickInside) {
+                    document.querySelectorAll('.dropdown-menu').forEach(menu => {
+                        menu.style.display = 'none';
+                    });
+                }
+            });
+        });
+    </script>
+    
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h3>History</h3>
+            {% for item in history %}
+                <div class="history-item" data-history='{{ item|tojson }}'>
+                    {{ item.prompt }}
+                    <button class="three-dot-button">⋮</button>
+                    <div class="dropdown-menu">
+                        <button class="delete">Delete</button>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        <div class="main-content">
+            <h1>RAG Prompt</h1>
+            <form method="post">
+                <div class="input-container">
+                    <textarea name="user_prompt" rows="4"></textarea>
+                    <button type="button" class="send-button">
+                        <svg viewBox="0 0 24 24">
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M15.1918 8.90615C15.6381 8.45983 16.3618 8.45983 16.8081 8.90615L21.9509 14.049C22.3972 14.4953 22.3972 15.2189 21.9509 15.6652C21.5046 16.1116 20.781 16.1116 20.3347 15.6652L17.1428 12.4734V22.2857C17.1428 22.9169 16.6311 23.4286 15.9999 23.4286C15.3688 23.4286 14.8571 22.9169 14.8571 22.2857V12.4734L11.6652 15.6652C11.2189 16.1116 10.4953 16.1116 10.049 15.6652C9.60265 15.2189 9.60265 14.4953 10.049 14.049L15.1918 8.90615Z" fill="currentColor"></path>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+            <div class="spinner"></div> <!-- Spinner will be shown here -->
+            <div class="output">
+                {% if current_result %}
+                    {{ current_result }}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
