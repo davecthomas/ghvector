@@ -1,4 +1,6 @@
 from typing import List
+
+from fastapi.staticfiles import StaticFiles
 from ghv_openai import GhvOpenAI
 from ghv_pinecone import GhvPinecone
 from ghv_prompt_history import GhvPromptHistory
@@ -59,6 +61,8 @@ class GhvRAG:
 
 def testWeb():
     app = FastAPI()
+    # Serve static files from the "static" directory
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
     # Set up Jinja2 for HTML templating
     templates = Jinja2Templates(directory="templates")
@@ -98,20 +102,6 @@ def testWeb():
             print(f"Error: {str(e)}")
             raise HTTPException(
                 status_code=500, detail="An error occurred during processing")
-        # augmented_texts = rag.augment_prompt(user_prompt)
-        # augmented_prompt = f"{user_prompt}\n Use this code for context:\n 1. {
-        #     augmented_texts[0]}\n 2. {augmented_texts[1]}\n 3. {augmented_texts[2]}"
-        # openai_response = openai_client.sendPrompt(augmented_prompt)
-        # # Add the entry to the prompt history
-        # prompt_history.add_entry(user_prompt, openai_response)
-        # print(f"response: {openai_response}")
-
-        # # Return the updated HTML with the new conversation added
-        # return templates.TemplateResponse("index.html", {
-        #     "request": request,
-        #     "history": prompt_history.get_history(),
-        #     "current_result": openai_response
-        # })
 
     @app.delete("/delete-history/{index}")
     async def delete_history(index: int):
